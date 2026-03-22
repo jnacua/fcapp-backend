@@ -9,7 +9,6 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 // ==========================================
 // 0. CLOUDINARY & MULTER CONFIGURATION
 // ==========================================
-// This uses the environment variables you added to Render
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -19,15 +18,15 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'announcements', // Images will be organized in this folder on Cloudinary
+    folder: 'announcements', 
     allowed_formats: ['jpg', 'png', 'jpeg'],
-    transformation: [{ width: 1200, crop: 'limit' }] // Optional: resizes large images
+    transformation: [{ width: 1200, crop: 'limit' }]
   },
 });
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 } 
 });
 
 // ==========================================
@@ -44,15 +43,18 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
-            // ✅ req.file.path is now the full HTTPS URL from Cloudinary
             file: req.file ? req.file.path : null, 
         };
 
         const announcement = await Announcement.create(announcementData);
         res.status(201).json(announcement);
     } catch (err) {
-        console.error("❌ Error creating announcement:", err);
-        res.status(400).json({ message: err.message });
+        // ✅ CHANGED: Using a comma to see the real error in Render Logs
+        console.error("❌ CREATE ANNOUNCEMENT ERROR:", err); 
+        res.status(500).json({ 
+            message: "Internal Server Error during upload", 
+            error: err.message 
+        });
     }
 });
 
@@ -78,7 +80,6 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async 
     try {
         let updateData = { ...req.body };
 
-        // ✅ If a new file is uploaded, update the Cloudinary URL
         if (req.file) {
             updateData.file = req.file.path;
         }
@@ -95,12 +96,14 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async 
 
         res.status(200).json(updatedAnnouncement);
     } catch (err) {
-        res.status(400).json({ message: err.message });
+        // ✅ CHANGED: Using a comma here too
+        console.error("❌ UPDATE ANNOUNCEMENT ERROR:", err);
+        res.status(500).json({ message: err.message });
     }
 });
 
 // ==========================================
-// 4. ADMIN ONLY: Quick Status Toggle (Pin/Archive)
+// 4. ADMIN ONLY: Quick Status Toggle
 // ==========================================
 router.patch('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -117,7 +120,7 @@ router.patch('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ==========================================
-// 5. ADMIN ONLY: Delete an announcement
+// 5. ADMIN ONLY: Delete
 // ==========================================
 router.delete('/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
