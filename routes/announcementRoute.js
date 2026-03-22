@@ -9,20 +9,19 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 // ==========================================
 // 0. CLOUDINARY & MULTER CONFIGURATION
 // ==========================================
-// Pulls from Render Environment Variables
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'announcements', 
-    allowed_formats: ['jpg', 'png', 'jpeg'],
-    transformation: [{ width: 1200, crop: 'limit' }] 
-  },
+    cloudinary: cloudinary,
+    params: {
+        folder: 'announcements', 
+        allowed_formats: ['jpg', 'png', 'jpeg'],
+        transformation: [{ width: 1200, crop: 'limit' }] 
+    },
 });
 
 const upload = multer({ 
@@ -44,7 +43,6 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
-            // Cloudinary URL from req.file.path
             file: req.file ? req.file.path : null, 
         };
 
@@ -61,13 +59,14 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
 
 // ==========================================
 // 2. PUBLIC/RESIDENT: Get all announcements
+// ✅ FIXED: Removed { status: { $ne: 'ARCHIVED' } }
 // ==========================================
 router.get('/', protect, async (req, res) => {
     try {
-        // Residents don't see Archived posts; Pinned ones show first
-        const announcements = await Announcement.find({ 
-            status: { $ne: 'ARCHIVED' } 
-        }).sort({ isPinned: -1, date: -1 });
+        // We now fetch ALL records. 
+        // Flutter will use its local filters to show/hide Archived items.
+        const announcements = await Announcement.find()
+            .sort({ isPinned: -1, date: -1 });
         
         res.status(200).json(announcements);
     } catch (err) {
