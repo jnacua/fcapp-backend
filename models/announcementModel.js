@@ -9,16 +9,25 @@ const announcementSchema = new mongoose.Schema({
         type: String, 
         required: true 
     },
-    // Added field to store the image path from Multer
     file: { 
         type: String, 
         default: null 
     },
-    // Changed from 'category' to 'type' to match your Flutter app
     type: { 
         type: String, 
         enum: ['GENERAL', 'EMERGENCY', 'EVENT', 'BILLINGS'],
         default: 'GENERAL' 
+    },
+    // ✅ ADDED: status field to support ARCHIVING
+    status: {
+        type: String,
+        enum: ['PUBLISHED', 'ARCHIVED', 'PENDING'],
+        default: 'PUBLISHED'
+    },
+    // ✅ ADDED: isPinned field to support PINNING
+    isPinned: {
+        type: Boolean,
+        default: false
     },
     date: { 
         type: Date, 
@@ -28,6 +37,6 @@ const announcementSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId, 
         ref: 'User' 
     }
-}, { timestamps: true }); // Adding timestamps is helpful for sorting
+}, { timestamps: true });
 
 module.exports = mongoose.model('Announcement', announcementSchema);
