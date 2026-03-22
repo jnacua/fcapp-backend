@@ -9,6 +9,7 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 // ==========================================
 // 0. CLOUDINARY & MULTER CONFIGURATION
 // ==========================================
+// Pulls from Render Environment Variables
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -26,7 +27,7 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } 
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 // ==========================================
@@ -43,6 +44,7 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
+            // Cloudinary URL from req.file.path
             file: req.file ? req.file.path : null, 
         };
 
@@ -62,6 +64,7 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
 // ==========================================
 router.get('/', protect, async (req, res) => {
     try {
+        // Residents don't see Archived posts; Pinned ones show first
         const announcements = await Announcement.find({ 
             status: { $ne: 'ARCHIVED' } 
         }).sort({ isPinned: -1, date: -1 });
@@ -102,7 +105,7 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async 
 
 // ==========================================
 // 4. ADMIN ONLY: Quick Status Toggle (Pin/Archive)
-// ✅ CHANGED: Switched from .patch to .post to bypass CORS blocks
+// ✅ FIXED: Using .post to bypass CORS PATCH block on Web
 // ==========================================
 router.post('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -118,7 +121,7 @@ router.post('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
             return res.status(404).json({ message: 'Announcement not found' });
         }
 
-        console.log(`✅ Updated ${req.params.id}: Status=${status}, Pinned=${isPinned}`);
+        console.log(`✅ Status/Pin Updated for ${req.params.id}`);
         res.status(200).json(announcement);
     } catch (err) {
         console.error("❌ STATUS UPDATE ERROR:", err);
