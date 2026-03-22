@@ -18,16 +18,15 @@ const vehicleRoutes = require('./routes/vehicleRoute');
 const app = express();
 
 // --- 1. ENHANCED CORS CONFIGURATION ---
-// Essential for Flutter Web to talk to Node.js
 app.use(cors({
     origin: '*', 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Added OPTIONS for pre-flight
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true
 }));
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Helps with multipart/form-data parsing
+app.use(express.urlencoded({ extended: true })); 
 
 // --- 2. STATIC UPLOADS FOLDER ---
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -46,13 +45,11 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Middleware to inject transporter into requests
 app.use((req, res, next) => {
   req.transporter = transporter;
   next();
 });
 
-// Basic Health Check
 app.get('/', (req, res) => res.send('Backend is running'));
 
 // --- 3. API ROUTES ---
@@ -65,10 +62,7 @@ app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 
-// Server Listener
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📡 Network Access enabled for Mobile/Web`);
 });

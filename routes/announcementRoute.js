@@ -20,7 +20,7 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'announcements', 
     allowed_formats: ['jpg', 'png', 'jpeg'],
-    transformation: [{ width: 1200, crop: 'limit' }]
+    transformation: [{ width: 1200, crop: 'limit' }] 
   },
 });
 
@@ -49,7 +49,6 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
         const announcement = await Announcement.create(announcementData);
         res.status(201).json(announcement);
     } catch (err) {
-        // ✅ CHANGED: Using a comma to see the real error in Render Logs
         console.error("❌ CREATE ANNOUNCEMENT ERROR:", err); 
         res.status(500).json({ 
             message: "Internal Server Error during upload", 
@@ -96,31 +95,39 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async 
 
         res.status(200).json(updatedAnnouncement);
     } catch (err) {
-        // ✅ CHANGED: Using a comma here too
         console.error("❌ UPDATE ANNOUNCEMENT ERROR:", err);
         res.status(500).json({ message: err.message });
     }
 });
 
 // ==========================================
-// 4. ADMIN ONLY: Quick Status Toggle
+// 4. ADMIN ONLY: Quick Status Toggle (Pin/Archive)
+// ✅ CHANGED: Switched from .patch to .post to bypass CORS blocks
 // ==========================================
-router.patch('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
+router.post('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status, isPinned } = req.body;
+        
         const announcement = await Announcement.findByIdAndUpdate(
             req.params.id,
-            { status, isPinned },
-            { new: true }
+            { $set: { status, isPinned } },
+            { new: true, runValidators: true }
         );
+
+        if (!announcement) {
+            return res.status(404).json({ message: 'Announcement not found' });
+        }
+
+        console.log(`✅ Updated ${req.params.id}: Status=${status}, Pinned=${isPinned}`);
         res.status(200).json(announcement);
     } catch (err) {
+        console.error("❌ STATUS UPDATE ERROR:", err);
         res.status(400).json({ message: err.message });
     }
 });
 
 // ==========================================
-// 5. ADMIN ONLY: Delete
+// 5. ADMIN ONLY: Delete an announcement
 // ==========================================
 router.delete('/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
