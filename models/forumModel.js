@@ -17,14 +17,21 @@ const forumSchema = new mongoose.Schema({
     image: { 
         type: String 
     }, 
-    // New: Distinguish between an Admin Thread and a Resident Post
+    // ✅ ADDED: Matches your Admin UI "Topic" dropdown
+    topic: {
+        type: String,
+        default: 'General'
+    },
+    // ✅ ADDED: Matches your Admin UI "Audience" dropdown
+    audience: {
+        type: String,
+        default: 'All Residents'
+    },
     postType: { 
         type: String, 
         enum: ['THREAD', 'POST'], 
         default: 'POST' 
     },
-    // Status logic:
-    // 'Pending' (needs Admin review), 'Approved' (visible to all), 'Rejected'
     status: { 
         type: String, 
         enum: ['Pending', 'Approved', 'Rejected'],
@@ -51,7 +58,6 @@ const forumSchema = new mongoose.Schema({
     }]
 }, { timestamps: true });
 
-// Indexing for faster searching of approved posts
 forumSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Forum', forumSchema);
