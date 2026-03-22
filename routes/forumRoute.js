@@ -6,9 +6,7 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// ==========================================
-// 0. CLOUDINARY CONFIGURATION
-// ==========================================
+// 0. CLOUDINARY CONFIG
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -27,25 +25,23 @@ const storage = new CloudinaryStorage({
 const upload = multer({ storage: storage });
 
 // ==========================================
-// 1. CREATE POST (Homeowners & Admins)
+// 1. CREATE POST (Logic: Residents = Pending, Admin = Approved)
 // ==========================================
 router.post('/create', protect, upload.single('image'), async (req, res) => {
     try {
         const { title, content, topic, audience } = req.body;
-        
-        // Safety check for user and role
         const isAdmin = req.user && req.user.role === 'ADMIN';
 
         const newPost = new Forum({
             userId: req.user.id,
             title: title || "Untitled Thread",
             content: content,
-            // ✅ FIX: Only access .path if req.file exists to avoid 500 error
             image: req.file ? req.file.path : null, 
             topic: topic || 'General',
             audience: audience || 'All Residents',
+            // ✅ Logic: Only Admins can create 'THREAD'
             postType: isAdmin ? 'THREAD' : 'POST',
-            // Force Admin posts to be Approved immediately
+            // ✅ Logic: Residents MUST be approved by Admin first
             status: isAdmin ? 'Approved' : 'Pending'
         });
 
@@ -53,7 +49,7 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
 
         const responseMsg = isAdmin 
             ? "Thread published successfully!" 
-            : "Post submitted for admin review!";
+            : "Post submitted! It will appear once an Admin approves it.";
 
         res.status(201).json({ 
             message: responseMsg, 
@@ -61,26 +57,20 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
             post: newPost 
         });
     } catch (err) {
-        console.error("❌ FORUM CREATE ERROR:", err);
-        res.status(500).json({ 
-            message: "Server error during post creation", 
-            error: err.message 
-        });
+        res.status(500).json({ error: err.message });
     }
 });
 
 // ==========================================
-// 2. GET APPROVED POSTS (Main Feed for Mobile)
+// 2. GET APPROVED POSTS (Main Feed)
 // ==========================================
 router.get('/all', protect, async (req, res) => {
     try {
-        // Fetch posts where status is 'Approved' (case-insensitive check is safer)
         const posts = await Forum.find({ 
             status: { $regex: /^approved$/i } 
         })
         .populate('userId', 'name')
         .sort({ createdAt: -1 }); 
-        
         res.json(posts);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -88,14 +78,36 @@ router.get('/all', protect, async (req, res) => {
 });
 
 // ==========================================
-// 3. ADMIN ONLY: Get Pending Posts
+// 3. COMMENT / REPLY LOGIC
 // ==========================================
-router.get('/pending', protect, restrictTo('ADMIN'), async (req, res) => {
+router.post('/comment/:postId', protect, async (req, res) => {
     try {
-        const pendingPosts = await Forum.find({ status: 'Pending' })
-            .populate('userId', 'name')
-            .sort({ createdAt: -1 });
-        res.json(pendingPosts);
+        const { text, parentCommentId } = req.body; 
+        const post = await Forum.findById(req.params.postId);
+        
+        if (!post) return res.status(404).json({ message: "Post not found" });
+
+        // ✅ If parentCommentId is provided, it's a REPLY
+        if (parentCommentId) {
+            const parentComment = post.comments.id(parentCommentId);
+            if (!parentComment) return res.status(404).json({ message: "Original comment not found" });
+
+            parentComment.replies.push({
+                userId: req.user.id,
+                userName: req.user.name, // ✅ Auto-tags the commenter's real name
+                text: text
+            });
+        } else {
+            // ✅ Standard top-level Comment
+            post.comments.push({ 
+                userId: req.user.id, 
+                userName: req.user.name, // ✅ Auto-tags the commenter's real name
+                text: text 
+            });
+        }
+        
+        await post.save();
+        res.status(200).json(post);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -106,36 +118,27 @@ router.get('/pending', protect, restrictTo('ADMIN'), async (req, res) => {
 // ==========================================
 router.patch('/review/:postId', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { status } = req.body; 
+        const { status } = req.body; // 'Approved' or 'Rejected'
         const post = await Forum.findByIdAndUpdate(
             req.params.postId, 
             { status }, 
             { new: true }
         );
-        res.json({ message: `Post status updated to ${status}`, post });
+        res.json({ message: `Post marked as ${status}`, post });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // ==========================================
-// 5. COMMENT ON POST
+// 5. ADMIN ONLY: Get Pending Posts
 // ==========================================
-router.post('/comment/:postId', protect, async (req, res) => {
+router.get('/pending', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { text, userName } = req.body;
-        const post = await Forum.findById(req.params.postId);
-        
-        if (!post) return res.status(404).json({ message: "Post not found" });
-
-        post.comments.push({ 
-            userId: req.user.id, 
-            userName: userName || req.user.name, 
-            text: text 
-        });
-        
-        await post.save();
-        res.json(post);
+        const pendingPosts = await Forum.find({ status: 'Pending' })
+            .populate('userId', 'name')
+            .sort({ createdAt: -1 });
+        res.json(pendingPosts);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -153,9 +156,9 @@ router.post('/like/:postId', protect, async (req, res) => {
         const index = post.likes.indexOf(userIdString);
 
         if (index > -1) {
-            post.likes.splice(index, 1); // Unlike
+            post.likes.splice(index, 1); 
         } else {
-            post.likes.push(userIdString); // Like
+            post.likes.push(userIdString);
         }
         
         await post.save();
