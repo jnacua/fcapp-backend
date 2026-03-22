@@ -9,6 +9,11 @@ const announcementSchema = new mongoose.Schema({
         type: String, 
         required: true 
     },
+    // Added field to store the image path from Multer
+    file: { 
+        type: String, 
+        default: null 
+    },
     // Changed from 'category' to 'type' to match your Flutter app
     type: { 
         type: String, 
