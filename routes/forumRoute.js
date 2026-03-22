@@ -31,16 +31,21 @@ const upload = multer({ storage: storage });
 // ==========================================
 router.post('/create', protect, upload.single('image'), async (req, res) => {
     try {
-        const { title, content } = req.body;
-        const isAdmin = req.user.role === 'ADMIN';
+        const { title, content, topic, audience } = req.body;
+        
+        // Safety check for user and role
+        const isAdmin = req.user && req.user.role === 'ADMIN';
 
         const newPost = new Forum({
             userId: req.user.id,
-            title,
-            content,
-            // ✅ Use req.file.path to get the Cloudinary URL
+            title: title || "Untitled Thread",
+            content: content,
+            // ✅ FIX: Only access .path if req.file exists to avoid 500 error
             image: req.file ? req.file.path : null, 
+            topic: topic || 'General',
+            audience: audience || 'All Residents',
             postType: isAdmin ? 'THREAD' : 'POST',
+            // Force Admin posts to be Approved immediately
             status: isAdmin ? 'Approved' : 'Pending'
         });
 
@@ -57,7 +62,10 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
         });
     } catch (err) {
         console.error("❌ FORUM CREATE ERROR:", err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ 
+            message: "Server error during post creation", 
+            error: err.message 
+        });
     }
 });
 
@@ -66,9 +74,13 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
 // ==========================================
 router.get('/all', protect, async (req, res) => {
     try {
-        const posts = await Forum.find({ status: 'Approved' })
-            .populate('userId', 'name')
-            .sort({ createdAt: -1 }); // Newest first
+        // Fetch posts where status is 'Approved' (case-insensitive check is safer)
+        const posts = await Forum.find({ 
+            status: { $regex: /^approved$/i } 
+        })
+        .populate('userId', 'name')
+        .sort({ createdAt: -1 }); 
+        
         res.json(posts);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -119,7 +131,7 @@ router.post('/comment/:postId', protect, async (req, res) => {
         post.comments.push({ 
             userId: req.user.id, 
             userName: userName || req.user.name, 
-            text 
+            text: text 
         });
         
         await post.save();
