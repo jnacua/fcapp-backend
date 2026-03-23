@@ -12,19 +12,20 @@ exports.protect = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // This typically contains { id, role }
+    
+    // ✅ Attach user info to req.user
+    req.user = decoded; 
     next();
   } catch (error) {
-    console.error(error);
+    console.error("JWT Verification Error:", error.message);
     res.status(401).json({ message: 'Token is malformed or invalid' });
   }
 };
 
-// --- ADD THIS SECTION TO FIX THE CRASH ---
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
-    // Check if the user's role (from the decoded token) is allowed
-    if (!roles.includes(req.user.role)) {
+    // ✅ Ensure req.user exists and role check is case-insensitive
+    if (!req.user || !req.user.role || !roles.map(r => r.toUpperCase()).includes(req.user.role.toUpperCase())) {
       return res.status(403).json({ 
         message: 'You do not have permission to perform this action' 
       });

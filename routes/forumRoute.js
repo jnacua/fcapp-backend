@@ -62,15 +62,22 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
 });
 
 // ==========================================
-// 2. GET APPROVED POSTS (Main Feed)
+// 2. GET POSTS (Residents see Approved, Admins see All for Filtering)
 // ==========================================
 router.get('/all', protect, async (req, res) => {
     try {
-        const posts = await Forum.find({ 
-            status: { $regex: /^approved$/i } 
-        })
-        .populate('userId', 'name')
-        .sort({ createdAt: -1 }); 
+        let query = {};
+
+        // ✅ If user is NOT an admin, only show approved posts
+        if (req.user.role !== 'ADMIN') {
+            query = { status: { $regex: /^approved$/i } };
+        } 
+        // ✅ Admins get the full list so they can see "Rejected/Archived" posts too
+
+        const posts = await Forum.find(query)
+            .populate('userId', 'name')
+            .sort({ createdAt: -1 }); 
+            
         res.json(posts);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -94,14 +101,14 @@ router.post('/comment/:postId', protect, async (req, res) => {
 
             parentComment.replies.push({
                 userId: req.user.id,
-                userName: req.user.name, // ✅ Auto-tags the commenter's real name
+                userName: req.user.name, 
                 text: text
             });
         } else {
             // ✅ Standard top-level Comment
             post.comments.push({ 
                 userId: req.user.id, 
-                userName: req.user.name, // ✅ Auto-tags the commenter's real name
+                userName: req.user.name, 
                 text: text 
             });
         }
@@ -114,16 +121,25 @@ router.post('/comment/:postId', protect, async (req, res) => {
 });
 
 // ==========================================
-// 4. ADMIN ONLY: Approve/Reject Post
+// 4. ADMIN ONLY: Approve/Reject Post (Used for Archiving)
 // ==========================================
 router.patch('/review/:postId', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { status } = req.body; // 'Approved' or 'Rejected'
+        const { status } = req.body; // Expecting 'Approved' or 'Rejected'
+        
+        // Validation to prevent setting weird statuses
+        if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
+            return res.status(400).json({ message: "Invalid status" });
+        }
+
         const post = await Forum.findByIdAndUpdate(
             req.params.postId, 
             { status }, 
             { new: true }
         );
+
+        if (!post) return res.status(404).json({ message: "Post not found" });
+
         res.json({ message: `Post marked as ${status}`, post });
     } catch (err) {
         res.status(500).json({ error: err.message });
