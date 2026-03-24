@@ -1,19 +1,62 @@
 const express = require('express');
 const router = express.Router();
+const Facility = require('../models/facilityModel'); // Ensure you have this model
+const Booking = require('../models/bookingModel');   // Ensure you have this model
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// GET all facilities (any user)
-router.get('/', protect, (req, res) => {
-  res.json([
-    { id: 1, name: 'Gym', status: 'available' },
-    { id: 2, name: 'Pool', status: 'maintenance' }
-  ]);
+// ==========================================
+// 1. GET ALL FACILITIES (Fills the Admin Cards)
+// ==========================================
+router.get('/all', protect, async (req, res) => {
+    try {
+        const facilities = await Facility.find();
+        res.status(200).json(facilities);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-// POST new facility (admin only)
-router.post('/', protect, restrictTo('admin'), (req, res) => {
-  const { name } = req.body;
-  res.json({ id: Math.floor(Math.random() * 1000), name, createdBy: req.user.email });
+// ==========================================
+// 2. GET ALL BOOKINGS (Fills the Bookings Table)
+// ==========================================
+router.get('/bookings', protect, async (req, res) => {
+    try {
+        // Populates user details (name, address) so they show in the table
+        const bookings = await Booking.find()
+            .populate('userId', 'name address')
+            .sort({ bookingDate: -1 });
+        res.status(200).json(bookings);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// 3. CREATE NEW FACILITY (Admin Only)
+// ==========================================
+router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const newFacility = await Facility.create(req.body);
+        res.status(201).json(newFacility);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// 4. REVIEW BOOKING (Approve/Reject)
+// ==========================================
+router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const updatedBooking = await Booking.findByIdAndUpdate(
+            req.params.id,
+            { status: req.body.status },
+            { new: true }
+        );
+        res.status(200).json(updatedBooking);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
 });
 
 module.exports = router;
