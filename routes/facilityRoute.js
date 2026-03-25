@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const Facility = require('../models/facilityModel'); // Ensure you have this model
-const Booking = require('../models/bookingModel');   // Ensure you have this model
+const Facility = require('../models/facilityModel'); 
+const Booking = require('../models/bookingModel');   
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
 // ==========================================
@@ -21,7 +21,6 @@ router.get('/all', protect, async (req, res) => {
 // ==========================================
 router.get('/bookings', protect, async (req, res) => {
     try {
-        // Populates user details (name, address) so they show in the table
         const bookings = await Booking.find()
             .populate('userId', 'name address')
             .sort({ bookingDate: -1 });
@@ -55,6 +54,25 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
         );
         res.status(200).json(updatedBooking);
     } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 5. SUBMIT BOOKING (From Mobile Phone) - ✅ ADDED THIS SECTION
+// ============================================================
+router.post('/book', protect, async (req, res) => {
+    try {
+        // This ensures the booking is linked to the logged-in resident
+        const newBooking = await Booking.create({
+            userId: req.user._id,
+            userName: req.user.name,
+            address: req.user.address || "N/A", // Uses user data from token
+            ...req.body // Receives facilityName, bookingDate, timeSlot, status
+        });
+        res.status(201).json(newBooking);
+    } catch (err) {
+        console.error("Booking Save Error:", err);
         res.status(400).json({ error: err.message });
     }
 });
