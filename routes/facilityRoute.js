@@ -1,12 +1,24 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer'); // ✅ Added Multer
+const path = require('path'); // ✅ Added Path
 const Facility = require('../models/facilityModel'); 
 const Booking = require('../models/bookingModel');   
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ==========================================
-// 1. GET ALL FACILITIES (Fills the Admin Cards)
-// ==========================================
+// --- MULTER CONFIGURATION ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/payments/'); // ✅ Make sure this folder exists
+    },
+    filename: (req, file, cb) => {
+        cb(null, `PROOF-${Date.now()}${path.extname(file.originalname)}`);
+    }
+});
+
+const upload = multer({ storage: storage });
+
+// 1. GET ALL FACILITIES
 router.get('/all', protect, async (req, res) => {
     try {
         const facilities = await Facility.find();
@@ -16,9 +28,7 @@ router.get('/all', protect, async (req, res) => {
     }
 });
 
-// ==========================================
-// 2. GET ALL BOOKINGS (Fills the Bookings Table)
-// ==========================================
+// 2. GET ALL BOOKINGS
 router.get('/bookings', protect, async (req, res) => {
     try {
         const bookings = await Booking.find()
@@ -30,9 +40,7 @@ router.get('/bookings', protect, async (req, res) => {
     }
 });
 
-// ==========================================
 // 3. CREATE NEW FACILITY (Admin Only)
-// ==========================================
 router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const newFacility = await Facility.create(req.body);
@@ -42,9 +50,7 @@ router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ==========================================
 // 4. REVIEW BOOKING (Approve/Reject)
-// ==========================================
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const updatedBooking = await Booking.findByIdAndUpdate(
@@ -59,17 +65,24 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ============================================================
-// 5. SUBMIT BOOKING (From Mobile Phone) - ✅ ADDED THIS SECTION
+// 5. SUBMIT BOOKING (From Mobile Phone) - ✅ UPDATED FOR IMAGES
 // ============================================================
-router.post('/book', protect, async (req, res) => {
+// Added upload.single('proofOfPayment') middleware
+router.post('/book', protect, upload.single('proofOfPayment'), async (req, res) => {
     try {
-        // This ensures the booking is linked to the logged-in resident
         const newBooking = await Booking.create({
             userId: req.user._id,
             userName: req.user.name,
-            address: req.user.address || "N/A", // Uses user data from token
-            ...req.body // Receives facilityName, bookingDate, timeSlot, status
+            address: req.user.address || "N/A",
+            facilityName: req.body.facilityName,
+            bookingDate: req.body.bookingDate,
+            timeSlot: req.body.timeSlot,
+            fee: req.body.fee,
+            status: req.body.status,
+            // ✅ SAVE THE IMAGE PATH
+            proofOfPayment: req.file ? req.file.path : null 
         });
+        
         res.status(201).json(newBooking);
     } catch (err) {
         console.error("Booking Save Error:", err);
