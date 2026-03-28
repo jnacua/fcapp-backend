@@ -1,15 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer'); // ✅ Added Multer
-const path = require('path'); // ✅ Added Path
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs'); // ✅ Added for folder management
 const Facility = require('../models/facilityModel'); 
 const Booking = require('../models/bookingModel');   
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
+// ✅ AUTOMATIC FOLDER CREATION (Crucial for Render)
+const uploadDir = 'uploads/payments/';
+if (!fs.existsSync(uploadDir)){
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 // --- MULTER CONFIGURATION ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/payments/'); // ✅ Make sure this folder exists
+        cb(null, uploadDir); 
     },
     filename: (req, file, cb) => {
         cb(null, `PROOF-${Date.now()}${path.extname(file.originalname)}`);
@@ -65,11 +72,14 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ============================================================
-// 5. SUBMIT BOOKING (From Mobile Phone) - ✅ UPDATED FOR IMAGES
+// 5. SUBMIT BOOKING (From Mobile Phone)
 // ============================================================
-// Added upload.single('proofOfPayment') middleware
 router.post('/book', protect, upload.single('proofOfPayment'), async (req, res) => {
     try {
+        // ✅ DEBUG LOG (Check Render Logs for this)
+        console.log("New Booking Request Body:", req.body);
+        console.log("File Info:", req.file);
+
         const newBooking = await Booking.create({
             userId: req.user._id,
             userName: req.user.name,
@@ -77,15 +87,15 @@ router.post('/book', protect, upload.single('proofOfPayment'), async (req, res) 
             facilityName: req.body.facilityName,
             bookingDate: req.body.bookingDate,
             timeSlot: req.body.timeSlot,
-            fee: req.body.fee,
-            status: req.body.status,
+            fee: req.body.fee ? parseFloat(req.body.fee) : 0,
+            status: req.body.status || 'Pending',
             // ✅ SAVE THE IMAGE PATH
-            proofOfPayment: req.file ? req.file.path : null 
+            proofOfPayment: req.file ? req.file.path : "" 
         });
         
         res.status(201).json(newBooking);
     } catch (err) {
-        console.error("Booking Save Error:", err);
+        console.error("Booking Save Error Details:", err);
         res.status(400).json({ error: err.message });
     }
 });
