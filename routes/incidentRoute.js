@@ -4,8 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Incident = require('../models/incidentModel'); 
-const Audit = require('../models/auditModel'); // ✅ Added for Audit Trail
-const { protect, restrictTo } = require('../middleware/authMiddleware');
+const Audit = require('../models/auditModel'); 
+const { protect } = require('../middleware/authMiddleware');
 
 // ✅ AUTOMATIC FOLDER CREATION
 const uploadDir = 'uploads/incidents/';
@@ -26,8 +26,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// 1. GET ALL REPORTS (Admin Side)
-// Matches: GET /api/incidents
+// 1. GET ALL REPORTS
 router.get('/', protect, async (req, res) => { 
     try {
         const incidents = await Incident.find().sort({ createdAt: -1 });
@@ -37,7 +36,7 @@ router.get('/', protect, async (req, res) => {
     }
 });
 
-// 2. SUBMIT NEW REPORT (Mobile Side)
+// 2. SUBMIT NEW REPORT (Mobile)
 router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
     try {
         const userId = req.body.userId || (req.user ? req.user._id : null);
@@ -47,15 +46,14 @@ router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
             return res.status(400).json({ error: "userId is required to file a report." });
         }
 
-        // ✅ FIXED: Field names now match your incidentModel.js exactly
         const newIncident = await Incident.create({
             userId: userId,
             userName: userName,
             category: req.body.category,
             description: req.body.description,
             location: req.body.location,
-            incidentPhoto: req.file ? req.file.path.replace(/\\/g, "/") : "", // Matches Model
-            status: 'pending' // ✅ Lowercase to match your Model Enum
+            incidentPhoto: req.file ? req.file.path.replace(/\\/g, "/") : "", 
+            status: 'pending' 
         });
 
         res.status(201).json(newIncident);
@@ -65,27 +63,32 @@ router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
     }
 });
 
-// 3. UPDATE STATUS (Reviewing/Resolved)
+// 3. UPDATE STATUS (Admin side - Fixes the adminName error)
 router.patch('/:id', protect, async (req, res) => {
     try {
         const updated = await Incident.findByIdAndUpdate(
             req.params.id, 
-            { status: req.body.status.toLowerCase() }, // ✅ Ensure lowercase for enum
+            { status: req.body.status.toLowerCase() }, 
             { new: true }
         );
 
-        // ✅ NEW: Log this action to the Audit Trail
-        if (updated && (req.body.status.toLowerCase() === 'resolved')) {
+        // ✅ CRITICAL FIX: Ensure adminName is never undefined
+        if (updated && (req.body.status.toLowerCase() === 'resolved' || req.body.status.toLowerCase() === 'done')) {
+            
+            // This fallback prevents the "Path 'adminName' is required" crash
+            const finalAdminName = (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN";
+
             await Audit.create({
-                adminName: req.user ? req.user.name : "ADMIN",
+                adminName: finalAdminName,
                 action: "INCIDENT RESOLVED",
-                details: `Marked ${updated.category} incident at ${updated.location} as resolved.`
+                details: `Incident (${updated.category}) at ${updated.location} marked as resolved.`
             });
         }
 
         res.status(200).json(updated);
     } catch (err) {
-        res.status(400).json({ message: err.message });
+        console.error("❌ Patch Error:", err.message);
+        res.status(400).json({ error: err.message });
     }
 });
 
