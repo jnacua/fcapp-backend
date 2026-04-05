@@ -20,39 +20,52 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- 1. ADMIN: Add Bill ---
-// Added protect and restrictTo so only Admins can create bills
-router.post('/admin/add-bill', auth.protect, auth.restrictTo('admin'), async (req, res) => {
+// --- 1. ADMIN: Fetch ALL Payments (CRITICAL FIX) ---
+// ✅ ADDED: This fixes the 404 error when Flutter calls /api/payments/all
+router.get('/all', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
-        const { userId, type, prevReading, currReading, month, dueDate } = req.body;
-        
-        let finalAmount = (type === 'Water') 
-            ? (currReading - prevReading) * 25 
-            : 500;
-
-        const newPayment = new Payment({
-            userId, 
-            type, 
-            month, 
-            prevReading, 
-            currReading,
-            amount: finalAmount,
-            dueDate,
-            status: 'Unpaid'
-        });
-
-        await newPayment.save();
-        res.status(201).json({ message: "Bill generated", amount: finalAmount });
+        const payments = await Payment.find().sort({ createdAt: -1 });
+        res.json(payments);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- 2. ADMIN: View All Pending Payments ---
-// This is for the Admin Dashboard to see who uploaded receipts
+// --- 2. ADMIN: Add Bill (Generate Bill) ---
+// ✅ UPDATED: Added 'userName' so the Flutter Table shows names instead of N/A
+router.post('/admin/add-bill', auth.protect, auth.restrictTo('admin'), async (req, res) => {
+    try {
+        const { userId, userName, type, prevReading, currReading, month, dueDate, amount } = req.body;
+        
+        // Auto-calculate Water, otherwise use the amount passed from Monthly Dues dialog
+        let finalAmount = amount;
+        if (type === 'Water' || type === 'Water Bill') {
+            finalAmount = (currReading - prevReading) * 25;
+        }
+
+        const newPayment = new Payment({
+            userId, 
+            userName: userName || "Resident", // ✅ Saved to DB for the table view
+            type, 
+            month, 
+            prevReading: prevReading || 0, 
+            currReading: currReading || 0,
+            amount: finalAmount,
+            dueDate: dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+            status: 'UNPAID' // Standardized to Uppercase for Flutter UI
+        });
+
+        await newPayment.save();
+        res.status(201).json({ message: "Bill generated", bill: newPayment });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 3. ADMIN: View Pending (For Receipts) ---
 router.get('/admin/pending', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
-        const pendingPayments = await Payment.find({ status: 'Pending' })
+        const pendingPayments = await Payment.find({ status: 'PENDING' })
             .populate('userId', 'name blockLot mobileNumber');
         res.json(pendingPayments);
     } catch (err) {
@@ -60,14 +73,13 @@ router.get('/admin/pending', auth.protect, auth.restrictTo('admin'), async (req,
     }
 });
 
-// --- 3. ADMIN: Verify/Approve Payment ---
-// Admin clicks "Approve" after checking the receipt image
+// --- 4. ADMIN: Verify/Approve Payment ---
 router.patch('/admin/verify/:billId', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
-        const { status } = req.body; // 'Paid' or 'Rejected'
+        const { status } = req.body; // 'PAID' or 'REJECTED'
         const bill = await Payment.findByIdAndUpdate(
             req.params.billId, 
-            { status: status }, 
+            { status: status.toUpperCase() }, 
             { new: true }
         );
         res.json({ message: `Payment marked as ${status}`, bill });
@@ -76,7 +88,18 @@ router.patch('/admin/verify/:billId', auth.protect, auth.restrictTo('admin'), as
     }
 });
 
-// --- 4. RESIDENT: Fetch My Bills ---
+// --- 5. ADMIN: Delete Bill ---
+// ✅ ADDED: For the Trash icon in your Flutter table
+router.delete('/:id', auth.protect, auth.restrictTo('admin'), async (req, res) => {
+    try {
+        await Payment.findByIdAndDelete(req.params.id);
+        res.json({ message: "Bill deleted successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 6. RESIDENT: Fetch My Bills ---
 router.get('/my-bills', auth.protect, async (req, res) => {
     try {
         const bills = await Payment.find({ userId: req.user.id }).sort({ createdAt: -1 });
@@ -86,7 +109,7 @@ router.get('/my-bills', auth.protect, async (req, res) => {
     }
 });
 
-// --- 5. RESIDENT: Upload Receipt ---
+// --- 7. RESIDENT: Upload Receipt ---
 router.post('/upload-receipt/:billId', auth.protect, upload.single('receipt'), async (req, res) => {
     try {
         const { transactionNo } = req.body;
@@ -95,9 +118,9 @@ router.post('/upload-receipt/:billId', auth.protect, upload.single('receipt'), a
         const bill = await Payment.findById(req.params.billId);
         if (!bill) return res.status(404).json({ error: "Bill not found" });
 
-        bill.status = 'Pending';
+        bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
-        bill.receiptImagePath = req.file.path; 
+        bill.receiptImagePath = req.file.path.replace(/\\/g, "/"); // Fix Windows path slashes
         
         await bill.save();
         res.json({ message: "Payment submitted for verification!" });
