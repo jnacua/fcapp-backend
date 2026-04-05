@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
-const Audit = require('../models/auditModel'); // ✅ ADDED: To track approvals
+const Audit = require('../models/auditModel'); // ✅ Tracks approvals/rejections
 const bcrypt = require('bcryptjs'); 
 const multer = require('multer');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
-const { protect, restrictTo } = require('../middleware/authMiddleware'); // ✅ ADDED: Security
+const { protect, restrictTo } = require('../middleware/authMiddleware');
 
 // --- MULTER CONFIGURATION ---
 const storage = multer.diskStorage({
@@ -36,9 +36,9 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
             mobileNumber,
             blockLot,
             name,
-            role: 'resident',
+            role: 'resident', 
             status: 'pending', 
-            proofOfResidencyPath: req.file ? req.file.path.replace(/\\/g, "/") : null // ✅ FIXED: Path slashes
+            proofOfResidencyPath: req.file ? req.file.path.replace(/\\/g, "/") : null 
         });
 
         await newUser.save();
@@ -48,29 +48,37 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
     }
 });
 
-// --- 2. LOGIN (Already looks good) ---
+// --- 2. LOGIN ---
 router.post('/login', async (req, res) => {
     try {
         const { email, password, isAdminLogin } = req.body; 
 
         const user = await User.findOne({ email });
-        if (!user) return res.status(404).json({ message: "User not found" });
+        
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
 
+        // Admin Security Check
         if (isAdminLogin && user.role !== 'ADMIN') {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
+        // Resident Approval Check
         if (user.role === 'resident') {
-            if (user.status === 'pending') {
+            const status = user.status.toLowerCase();
+            if (status === 'pending') {
                 return res.status(403).json({ message: "Wait for admin approval" });
             }
-            if (user.status === 'rejected' || user.status === 'ARCHIVED') {
+            if (status === 'rejected' || status === 'archived') {
                 return res.status(403).json({ message: "Account inactive. Contact admin." });
             }
         }
 
         const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword) return res.status(400).json({ message: "Invalid credentials" });
+        if (!validPassword) {
+            return res.status(400).json({ message: "Invalid credentials" });
+        }
 
         const token = jwt.sign(
             { id: user._id, role: user.role }, 
@@ -81,7 +89,12 @@ router.post('/login', async (req, res) => {
         return res.status(200).json({ 
             message: "Login successful", 
             token: token, 
-            user: { id: user._id, name: user.name, email: user.email, role: user.role } 
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            } 
         });
 
     } catch (err) {
@@ -89,15 +102,76 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 3, 4, 5. FORGOT PASSWORD / OTP / RESET (Keep your existing code here) ---
-// ... (omitted for brevity)
-
-// --- 6. ADMIN ROUTES (ENHANCED) ---
-
-// ✅ GET all users for the Account Approval screen
-router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
+// --- 3. FORGOT PASSWORD ---
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body; 
     try {
-        // Fetching all residents so the admin can see current and pending
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ message: "User not found" });
+        
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        user.resetOtp = otp;
+        user.resetOtpExpires = Date.now() + 600000; 
+        await user.save();
+        
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'FCAPP - Password Reset OTP',
+            html: `<h2>Password Reset</h2><p>Your code is: <b>${otp}</b></p>`
+        };
+
+        await req.transporter.sendMail(mailOptions);
+        return res.status(200).json({ message: "OTP sent" });
+    } catch (err) { 
+        return res.status(500).json({ message: "Error sending email" }); 
+    }
+});
+
+// --- 4. VERIFY OTP ---
+router.post('/verify-otp', async (req, res) => {
+    const { email, otp } = req.body;
+    try {
+        const user = await User.findOne({ 
+            email: email, 
+            resetOtp: otp, 
+            resetOtpExpires: { $gt: Date.now() } 
+        });
+        if (!user) return res.status(400).json({ message: "Invalid or expired OTP" });
+        return res.status(200).json({ message: "Verified" });
+    } catch (err) {
+        return res.status(500).json({ message: "Error" });
+    }
+});
+
+// --- 5. RESET PASSWORD ---
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+        
+        await User.findOneAndUpdate(
+            { email: email }, 
+            { 
+                password: hashedPassword, 
+                resetOtp: null, 
+                resetOtpExpires: null 
+            }
+        );
+        return res.status(200).json({ message: "Success" });
+    } catch (err) {
+        return res.status(500).json({ message: "Error" });
+    }
+});
+
+// --- 6. ADMIN ROUTES ---
+
+// ✅ UPDATED: Fetch ALL residents so Flutter can filter them into tabs (Users, Pending, Archived)
+router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        // Fetching all residents allows the app to show "Active" users in the list 
+        // and "Pending" users in the approval queue.
         const users = await User.find({ role: 'resident' }).sort({ createdAt: -1 });
         return res.status(200).json(users);
     } catch (err) {
@@ -105,33 +179,24 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ✅ GET only pending users
-router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
-    try {
-        const users = await User.find({ status: 'pending' });
-        return res.status(200).json(users);
-    } catch (err) {
-        return res.status(500).json({ message: "Error fetching users" });
-    }
-});
-
-// ✅ UPDATE status with Audit Trail logging
+// ✅ UPDATED: Update status with automatic lowercase to match DB enums
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
         const user = await User.findByIdAndUpdate(
             req.params.id, 
-            { status: status }, 
+            { status: status.toLowerCase() }, // e.g., 'active', 'rejected', 'archived'
             { new: true }
         );
 
         if (user) {
-            // ✅ Log the approval/rejection to the Audit Trail
+            // Log to Audit Trail
             await Audit.create({
                 adminName: req.user ? req.user.name : "ADMIN",
                 action: `ACCOUNT ${status.toUpperCase()}`,
                 details: `${status.toUpperCase()} account for ${user.name} (${user.email})`
             });
+            console.log(`✅ User ${user.email} updated to: ${user.status}`);
         }
 
         return res.status(200).json({ message: `User ${status}`, user });
