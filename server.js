@@ -8,6 +8,7 @@ const nodemailer = require('nodemailer');
 // Route Imports
 const authRoutes = require('./routes/authRoute');
 const announcementRoutes = require('./routes/announcementRoute');
+const auditRoutes = require('./routes/auditRoute'); // ✅ Added
 const paymentRoutes = require('./routes/paymentRoute');
 const incidentRoutes = require('./routes/incidentRoute');
 const facilityRoutes = require('./routes/facilityRoute');
@@ -55,6 +56,7 @@ app.get('/', (req, res) => res.send('Backend is running'));
 // --- 3. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/audit', auditRoutes); // ✅ Added
 app.use('/api/payments', paymentRoutes);
 app.use('/api/incidents', incidentRoutes);
 app.use('/api/facilities', facilityRoutes);
