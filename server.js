@@ -8,13 +8,14 @@ const nodemailer = require('nodemailer');
 // Route Imports
 const authRoutes = require('./routes/authRoute');
 const announcementRoutes = require('./routes/announcementRoute');
-const auditRoutes = require('./routes/auditRoute'); // ✅ Added
+const auditRoutes = require('./routes/auditRoute'); 
 const paymentRoutes = require('./routes/paymentRoute');
 const incidentRoutes = require('./routes/incidentRoute');
 const facilityRoutes = require('./routes/facilityRoute');
 const forumRoutes = require('./routes/forumRoute');
 const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
+const paymongoRoutes = require('./routes/paymongoRoutes'); // ✅ ADDED: PayMongo Integration
 
 const app = express();
 
@@ -56,13 +57,14 @@ app.get('/', (req, res) => res.send('Backend is running'));
 // --- 3. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
-app.use('/api/audit', auditRoutes); // ✅ Added
+app.use('/api/audit', auditRoutes); 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/incidents', incidentRoutes);
 app.use('/api/facilities', facilityRoutes);
 app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/paymongo', paymongoRoutes); // ✅ ADDED: PayMongo API Endpoint
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

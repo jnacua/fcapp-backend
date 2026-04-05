@@ -48,7 +48,7 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
     }
 });
 
-// --- 2. LOGIN ---
+// --- 2. LOGIN (UPDATED WITH MISSING FIELDS) ---
 router.post('/login', async (req, res) => {
     try {
         const { email, password, isAdminLogin } = req.body; 
@@ -93,12 +93,36 @@ router.post('/login', async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                // ✅ ADDED THESE TWO LINES TO FIX N/A AND IMAGE
+                blockLot: user.blockLot || user.blocklot || 'N/A',
+                profileImage: user.profileImage || null
             } 
         });
 
     } catch (err) {
         return res.status(500).json({ message: "Login error" });
+    }
+});
+
+// --- ✅ NEW: GET ME (FOR FLUTTER HOME REFRESH) ---
+router.get('/me', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) return res.status(404).json({ message: "User not found" });
+        
+        // We return the keys that match what Flutter's localUserData expects
+        res.json({
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            status: user.status,
+            blockLot: user.blockLot || user.blocklot || 'N/A',
+            profileImage: user.profileImage || null
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Server Error" });
     }
 });
 
@@ -167,11 +191,18 @@ router.post('/reset-password', async (req, res) => {
 
 // --- 6. ADMIN ROUTES ---
 
-// ✅ UPDATED: Fetch ALL residents so Flutter can filter them into tabs (Users, Pending, Archived)
+// ✅ UPDATED: Added 'all-users' for the Admin Dropdowns in billing
+router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const users = await User.find({ role: 'resident', status: 'approved' }).select('name _id blockLot blocklot');
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ message: "Error" });
+    }
+});
+
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        // Fetching all residents allows the app to show "Active" users in the list 
-        // and "Pending" users in the approval queue.
         const users = await User.find({ role: 'resident' }).sort({ createdAt: -1 });
         return res.status(200).json(users);
     } catch (err) {
@@ -179,24 +210,21 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ✅ UPDATED: Update status with automatic lowercase to match DB enums
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
         const user = await User.findByIdAndUpdate(
             req.params.id, 
-            { status: status.toLowerCase() }, // e.g., 'active', 'rejected', 'archived'
+            { status: status.toLowerCase() }, 
             { new: true }
         );
 
         if (user) {
-            // Log to Audit Trail
             await Audit.create({
                 adminName: req.user ? req.user.name : "ADMIN",
                 action: `ACCOUNT ${status.toUpperCase()}`,
                 details: `${status.toUpperCase()} account for ${user.name} (${user.email})`
             });
-            console.log(`✅ User ${user.email} updated to: ${user.status}`);
         }
 
         return res.status(200).json({ message: `User ${status}`, user });
