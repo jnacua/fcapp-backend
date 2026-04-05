@@ -19,7 +19,6 @@ const storage = multer.diskStorage({
         cb(null, uploadDir); 
     },
     filename: (req, file, cb) => {
-        // Cleaning filename to avoid issues with spaces or special chars
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, `PROOF-${uniqueSuffix}${path.extname(file.originalname)}`);
     }
@@ -42,24 +41,57 @@ router.get('/bookings', protect, async (req, res) => {
     try {
         const bookings = await Booking.find()
             .populate('userId', 'name address')
-            .sort({ createdAt: -1 }); // Changed to createdAt to see newest first
+            .sort({ createdAt: -1 }); 
         res.status(200).json(bookings);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
+// ==========================================
 // 3. CREATE NEW FACILITY (Admin Only)
+// ==========================================
 router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const newFacility = await Facility.create(req.body);
+        console.log("Admin adding facility:", req.body);
+        
+        // Ensure data is sent correctly from Flutter Web
+        const { name, price, capacity } = req.body;
+
+        if (!name || !price || !capacity) {
+            return res.status(400).json({ error: "Missing required fields: Name, Price, or Capacity." });
+        }
+
+        const newFacility = await Facility.create({
+            name: name.toUpperCase(),
+            price: parseFloat(price),
+            capacity: parseInt(capacity),
+            description: req.body.description || ""
+        });
+
         res.status(201).json(newFacility);
     } catch (err) {
+        console.error("❌ Facility Add Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
 
-// 4. REVIEW BOOKING (Approve/Reject)
+// ==========================================
+// 4. DELETE FACILITY (Admin Only) - ✅ NEW
+// ==========================================
+router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const deletedFacility = await Facility.findByIdAndDelete(req.params.id);
+        if (!deletedFacility) {
+            return res.status(404).json({ error: "Facility not found." });
+        }
+        res.status(200).json({ message: "Facility deleted successfully." });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5. REVIEW BOOKING (Approve/Reject)
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const updatedBooking = await Booking.findByIdAndUpdate(
@@ -74,21 +106,14 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ============================================================
-// 5. SUBMIT BOOKING (From Mobile Phone)
+// 6. SUBMIT BOOKING (From Mobile Phone)
 // ============================================================
-// ✅ FIX: Moved upload.single BEFORE protect. 
-// This ensures userId and userName are parsed into req.body before validation.
 router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) => {
     try {
         console.log("--- NEW BOOKING ATTEMPT ---");
-        console.log("Body Content:", req.body);
-        console.log("File Content:", req.file);
-
-        // Pulling data with fallbacks
         const userId = req.body.userId || (req.user ? req.user._id : null);
         const userName = req.body.userName || (req.user ? req.user.name : "Resident");
         
-        // Manual validation before database attempt to avoid generic 400 error
         if (!userId || !userName) {
             return res.status(400).json({ 
                 error: "Missing User Identification", 
@@ -105,11 +130,9 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
             timeSlot: req.body.timeSlot,
             fee: req.body.fee ? parseFloat(req.body.fee) : 0,
             status: req.body.status || 'Pending',
-            // Ensure path is saved correctly for static serving
             proofOfPayment: req.file ? req.file.path.replace(/\\/g, "/") : "" 
         });
         
-        console.log("✅ Booking Saved Successfully:", newBooking._id);
         res.status(201).json(newBooking);
     } catch (err) {
         console.error("❌ Booking Save Error:", err.message);
