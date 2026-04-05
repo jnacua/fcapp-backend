@@ -5,7 +5,7 @@ exports.getAll = async (req, res) => {
   try {
     // Sort by newest first so the latest bills appear at the top of the Flutter table
     const payments = await Payment.find().sort({ createdAt: -1 });
-    res.json(payments);
+    res.status(200).json(payments);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -22,34 +22,43 @@ exports.create = async (req, res) => {
       month, 
       prevReading, 
       currReading, 
-      ratePerCubic 
+      ratePerCubic,
+      dueDate 
     } = req.body;
 
-    // Logic for Water Bill Auto-Computation
-    let finalAmount = amount;
-    if (type === 'Water Bill' && currReading !== undefined && prevReading !== undefined) {
-       const consumption = currReading - prevReading;
-       const rate = ratePerCubic || 25;
+    // --- Safety Check: Prevent 500 crashes if required fields are missing ---
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    // --- Logic for Water Bill Auto-Computation ---
+    let finalAmount = amount || 0;
+    if (type === 'Water Bill') {
+       const consumption = (Number(currReading) || 0) - (Number(prevReading) || 0);
+       const rate = Number(ratePerCubic) || 25;
        finalAmount = consumption * rate;
     }
 
+    // --- Create Document with Fallbacks to satisfy Mongoose 'required' tags ---
     const newPayment = new Payment({
       userId,
-      userName, // Important: Matches your Flutter bill['userName']
-      type,     // 'Water Bill' or 'Monthly Dues'
+      userName: userName || "Resident", // Fallback to prevent crash
+      type: type || "Monthly Dues",      // Fallback to prevent crash
       amount: finalAmount,
-      month,
+      month: month || new Date().toLocaleString('default', { month: 'long' }), // Default to current month
       prevReading: prevReading || 0,
       currReading: currReading || 0,
       ratePerCubic: ratePerCubic || 25,
-      status: 'UNPAID', // Default to UNPAID so it shows red in Flutter
-      dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) // Default 15 days due
+      status: 'UNPAID',
+      // If dueDate is passed from Flutter, use it; otherwise, default to 15 days from now
+      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)
     });
 
     await newPayment.save();
     res.status(201).json(newPayment);
   } catch (err) {
-    console.error("Error creating bill:", err);
+    // This will print the EXACT field that caused the crash in your Render Logs
+    console.error("❌ DATABASE SAVE ERROR:", err.message); 
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -59,9 +68,9 @@ exports.getMyBills = async (req, res) => {
   try {
     // req.user.id comes from your protect middleware
     const bills = await Payment.find({ userId: req.user.id }).sort({ createdAt: -1 });
-    res.json(bills);
+    res.status(200).json(bills);
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching your bills' });
+    res.status(500).json({ message: 'Error fetching your bills', error: err.message });
   }
 };
 
@@ -74,7 +83,7 @@ exports.updateStatus = async (req, res) => {
     const payment = await Payment.findByIdAndUpdate(
       id,
       { 
-        status: status.toUpperCase(), // Standardize to PAID/UNPAID
+        status: status ? status.toUpperCase() : 'UNPAID', // Standardize to PAID/UNPAID
         transactionNo: transactionNo 
       },
       { new: true }
@@ -82,7 +91,7 @@ exports.updateStatus = async (req, res) => {
 
     if (!payment) return res.status(404).json({ message: 'Payment not found' });
 
-    res.json(payment);
+    res.status(200).json(payment);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -91,9 +100,11 @@ exports.updateStatus = async (req, res) => {
 // ✅ 5. Delete a bill (For the Trash icon in your Flutter table)
 exports.deleteBill = async (req, res) => {
   try {
-    await Payment.findByIdAndDelete(req.params.id);
-    res.json({ message: "Bill deleted successfully" });
+    const payment = await Payment.findByIdAndDelete(req.params.id);
+    if (!payment) return res.status(404).json({ message: "Bill not found" });
+    
+    res.status(200).json({ message: "Bill deleted successfully" });
   } catch (err) {
-    res.status(500).json({ message: "Error deleting bill" });
+    res.status(500).json({ message: "Error deleting bill", error: err.message });
   }
 };
