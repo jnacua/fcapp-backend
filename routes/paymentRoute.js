@@ -20,8 +20,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- 1. ADMIN: Fetch ALL Payments (CRITICAL FIX) ---
-// ✅ ADDED: This fixes the 404 error when Flutter calls /api/payments/all
+// --- 1. ADMIN: Fetch ALL Payments ---
 router.get('/all', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
         const payments = await Payment.find().sort({ createdAt: -1 });
@@ -31,13 +30,12 @@ router.get('/all', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     }
 });
 
-// --- 2. ADMIN: Add Bill (Generate Bill) ---
-// ✅ UPDATED: Added 'userName' so the Flutter Table shows names instead of N/A
-router.post('/admin/add-bill', auth.protect, auth.restrictTo('admin'), async (req, res) => {
+// --- 2. ADMIN: Create Bill ---
+// ✅ FIX: Added '/create-bill' alias to match your Flutter ApiService call exactly
+router.post(['/admin/add-bill', '/create-bill'], auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
         const { userId, userName, type, prevReading, currReading, month, dueDate, amount } = req.body;
         
-        // Auto-calculate Water, otherwise use the amount passed from Monthly Dues dialog
         let finalAmount = amount;
         if (type === 'Water' || type === 'Water Bill') {
             finalAmount = (currReading - prevReading) * 25;
@@ -45,14 +43,14 @@ router.post('/admin/add-bill', auth.protect, auth.restrictTo('admin'), async (re
 
         const newPayment = new Payment({
             userId, 
-            userName: userName || "Resident", // ✅ Saved to DB for the table view
+            userName: userName || "Resident", 
             type, 
             month, 
             prevReading: prevReading || 0, 
             currReading: currReading || 0,
             amount: finalAmount,
             dueDate: dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
-            status: 'UNPAID' // Standardized to Uppercase for Flutter UI
+            status: 'UNPAID'
         });
 
         await newPayment.save();
@@ -62,21 +60,26 @@ router.post('/admin/add-bill', auth.protect, auth.restrictTo('admin'), async (re
     }
 });
 
-// --- 3. ADMIN: View Pending (For Receipts) ---
-router.get('/admin/pending', auth.protect, auth.restrictTo('admin'), async (req, res) => {
+// --- 3. ADMIN: General Status Update ---
+// ✅ ADDED: This allows the Admin to manually mark a bill as PAID (for cash payments)
+router.put('/update-status/:id', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
-        const pendingPayments = await Payment.find({ status: 'PENDING' })
-            .populate('userId', 'name blockLot mobileNumber');
-        res.json(pendingPayments);
+        const { status } = req.body;
+        const bill = await Payment.findByIdAndUpdate(
+            req.params.id,
+            { status: status.toUpperCase() },
+            { new: true }
+        );
+        res.json(bill);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- 4. ADMIN: Verify/Approve Payment ---
+// --- 4. ADMIN: Verify/Approve Receipt ---
 router.patch('/admin/verify/:billId', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
-        const { status } = req.body; // 'PAID' or 'REJECTED'
+        const { status } = req.body; 
         const bill = await Payment.findByIdAndUpdate(
             req.params.billId, 
             { status: status.toUpperCase() }, 
@@ -89,7 +92,6 @@ router.patch('/admin/verify/:billId', auth.protect, auth.restrictTo('admin'), as
 });
 
 // --- 5. ADMIN: Delete Bill ---
-// ✅ ADDED: For the Trash icon in your Flutter table
 router.delete('/:id', auth.protect, auth.restrictTo('admin'), async (req, res) => {
     try {
         await Payment.findByIdAndDelete(req.params.id);
@@ -120,7 +122,8 @@ router.post('/upload-receipt/:billId', auth.protect, upload.single('receipt'), a
 
         bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
-        bill.receiptImagePath = req.file.path.replace(/\\/g, "/"); // Fix Windows path slashes
+        // Store path correctly for web access
+        bill.receiptImagePath = req.file.path.replace(/\\/g, "/"); 
         
         await bill.save();
         res.json({ message: "Payment submitted for verification!" });
