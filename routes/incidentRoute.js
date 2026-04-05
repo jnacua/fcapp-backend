@@ -4,9 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Incident = require('../models/incidentModel'); 
+const Audit = require('../models/auditModel'); // ✅ Added for Audit Trail
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ✅ AUTOMATIC FOLDER CREATION (For Incident Photos)
+// ✅ AUTOMATIC FOLDER CREATION
 const uploadDir = 'uploads/incidents/';
 if (!fs.existsSync(uploadDir)){
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -26,23 +27,19 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // 1. GET ALL REPORTS (Admin Side)
+// Matches: GET /api/incidents
 router.get('/', protect, async (req, res) => { 
     try {
         const incidents = await Incident.find().sort({ createdAt: -1 });
-        res.status(200).json(incidents);
+        res.status(200).json(incidents); 
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
 // 2. SUBMIT NEW REPORT (Mobile Side)
-// ✅ Added this route - it was missing!
 router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
     try {
-        console.log("--- NEW INCIDENT REPORT ---");
-        console.log("Fields:", req.body);
-
-        // Fallback logic for userId and userName
         const userId = req.body.userId || (req.user ? req.user._id : null);
         const userName = req.body.userName || (req.user ? req.user.name : "Resident");
 
@@ -50,17 +47,17 @@ router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
             return res.status(400).json({ error: "userId is required to file a report." });
         }
 
+        // ✅ FIXED: Field names now match your incidentModel.js exactly
         const newIncident = await Incident.create({
             userId: userId,
             userName: userName,
             category: req.body.category,
             description: req.body.description,
             location: req.body.location,
-            incidentPhoto: req.file ? req.file.path.replace(/\\/g, "/") : "",
-            status: 'Pending'
+            incidentPhoto: req.file ? req.file.path.replace(/\\/g, "/") : "", // Matches Model
+            status: 'pending' // ✅ Lowercase to match your Model Enum
         });
 
-        console.log("✅ Incident Saved:", newIncident._id);
         res.status(201).json(newIncident);
     } catch (err) {
         console.error("❌ Incident Error:", err.message);
@@ -73,9 +70,19 @@ router.patch('/:id', protect, async (req, res) => {
     try {
         const updated = await Incident.findByIdAndUpdate(
             req.params.id, 
-            { status: req.body.status }, 
+            { status: req.body.status.toLowerCase() }, // ✅ Ensure lowercase for enum
             { new: true }
         );
+
+        // ✅ NEW: Log this action to the Audit Trail
+        if (updated && (req.body.status.toLowerCase() === 'resolved')) {
+            await Audit.create({
+                adminName: req.user ? req.user.name : "ADMIN",
+                action: "INCIDENT RESOLVED",
+                details: `Marked ${updated.category} incident at ${updated.location} as resolved.`
+            });
+        }
+
         res.status(200).json(updated);
     } catch (err) {
         res.status(400).json({ message: err.message });
