@@ -88,8 +88,8 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook (RELIABLE SESSION RETRIEVAL)
-// 🚨 Strategy: Use the Session ID to ask PayMongo for the real data.
+// ✅ 6. PayMongo Webhook (TARGETED SESSION RETRIEVAL)
+// 🚨 Strategy: Extract the Checkout Session ID to fetch the original billId safely.
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -98,13 +98,19 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // 1. Get the Session ID from the webhook
-      const sessionId = data.id || data.attributes?.resource?.id;
-      console.log(`🔍 RETRIEVING SESSION DETAILS FOR: ${sessionId}`);
+      // 🚨 CRITICAL: Extract the actual Checkout Session ID (starts with cs_)
+      const checkoutSessionId = data.attributes?.payload?.attributes?.checkout_session_id;
+      
+      console.log(`🔍 RETRIEVING SESSION DETAILS FOR: ${checkoutSessionId}`);
 
-      // 2. Fetch the FULL session object directly from PayMongo API
+      if (!checkoutSessionId) {
+        console.log("⚠️ ERROR: No checkout_session_id found in webhook payload.");
+        return res.status(200).send('OK');
+      }
+
+      // Fetch the FULL session object directly from PayMongo API
       const response = await axios.get(
-        `https://api.paymongo.com/v1/checkout_sessions/${sessionId}`,
+        `https://api.paymongo.com/v1/checkout_sessions/${checkoutSessionId}`,
         {
           headers: {
             accept: 'application/json',
@@ -115,7 +121,7 @@ exports.paymongoWebhook = async (req, res) => {
 
       const sessionData = response.data.data.attributes;
       
-      // 3. Extract the ID from the official session record
+      // Extract the ID from the official session record (Reference No is most stable)
       const billId = sessionData.reference_number || sessionData.metadata?.billId;
 
       console.log(`🎯 VERIFIED BILL ID FROM API: ${billId}`);
@@ -125,7 +131,7 @@ exports.paymongoWebhook = async (req, res) => {
           billId,
           {
             status: 'PAID',
-            transactionNo: sessionId, // Use Session ID as Reference
+            transactionNo: checkoutSessionId, 
             paidAt: new Date()
           },
           { new: true }
@@ -143,7 +149,8 @@ exports.paymongoWebhook = async (req, res) => {
     
     res.status(200).send('OK');
   } catch (err) {
-    console.error("🔥 WEBHOOK ERROR:", err.message);
+    // Detailed logging for API failures
+    console.error("🔥 WEBHOOK ERROR:", err.response?.data || err.message);
     res.status(500).send('Internal Server Error');
   }
 };
