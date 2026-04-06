@@ -59,7 +59,7 @@ exports.getMyBills = async (req, res) => {
   }
 };
 
-// ✅ 4. Update payment status (Manual Admin Update for Cash Payments)
+// ✅ 4. Update payment status (Manual Admin Update for Cash/Over-the-counter)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -79,7 +79,7 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// ✅ 5. Delete a bill (Trash icon)
+// ✅ 5. Delete a bill
 exports.deleteBill = async (req, res) => {
   try {
     await Payment.findByIdAndDelete(req.params.id);
@@ -90,32 +90,33 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 CRITICAL: Specifically handles the "checkout_session.payment.paid" event
+// 🚨 BULLETPROOF LOGIC: Checks Metadata, then scans Description for the ID
 exports.paymongoWebhook = async (req, res) => {
   try {
-    const event = req.body.data;
-    const eventType = event.attributes.type;
+    const data = req.body.data;
+    const eventType = data.attributes.type;
 
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // For Checkout Sessions, attributes are nested in attributes.payload.payment.attributes
-      const paymentData = event.attributes.payload.payment.attributes;
-      const description = paymentData.description || "";
+      const payload = data.attributes.payload;
+      const paymentData = payload.payment.attributes;
       
-      console.log("📝 PROCESSING DESCRIPTION:", description);
+      const description = paymentData.description || "";
+      const metadata = data.attributes.metadata || {};
+      
+      console.log("📝 DATA RECEIVED - Description:", description);
 
-      // Extract Bill ID from the string: "Bill ID: 65f123456789..."
-      const billId = description.includes("Bill ID: ") 
-        ? description.split("Bill ID: ")[1].trim() 
-        : null;
+      // Extract the 24-char MongoDB ID using Regex (Safety first)
+      const idMatch = description.match(/[a-f\d]{24}/i); 
+      const billId = metadata.billId || (idMatch ? idMatch[0] : null);
 
       if (billId) {
         const updated = await Payment.findByIdAndUpdate(
           billId, 
           {
             status: 'PAID',
-            transactionNo: paymentData.external_reference || event.id,
+            transactionNo: paymentData.external_reference || data.id,
             paidAt: new Date()
           },
           { new: true }
@@ -124,17 +125,17 @@ exports.paymongoWebhook = async (req, res) => {
         if (updated) {
           console.log(`✅ DATABASE UPDATED: Bill ${billId} is now PAID`);
         } else {
-          console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in collection.`);
+          console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in MongoDB.`);
         }
       } else {
-        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in the payment description.");
+        console.log("⚠️ WEBHOOK WARNING: Could not extract a valid Bill ID from Description or Metadata.");
       }
     }
-    // PayMongo requires a 200 response to acknowledge receipt
+    // PayMongo requires a 200 response to stop retrying
     res.status(200).send('OK');
   } catch (err) {
     console.error("❌ WEBHOOK CRITICAL ERROR:", err.message);
-    res.status(500).send('Webhook Processing Failed');
+    res.status(500).send('Internal Server Error');
   }
 };
 
@@ -157,8 +158,11 @@ exports.createPayMongoLink = async (req, res) => {
             send_email_receipt: true,
             show_description: true,
             show_line_items: true,
-            // 🚨 THIS STRING MUST BE EXACTLY PARSED BY THE WEBHOOK (SECTION 6)
-            description: `Bill ID: ${billId}`, 
+            description: `Bill ID: ${billId}`,
+            // ✅ BACKUP: Metadata is highly reliable for webhooks
+            metadata: {
+              billId: billId
+            },
             line_items: [
               {
                 currency: 'PHP',
@@ -183,7 +187,7 @@ exports.createPayMongoLink = async (req, res) => {
   }
 };
 
-// ✅ 8. Payment Success Page (Visual feedback for the resident's browser)
+// ✅ 8. Payment Success Page
 exports.paymentSuccess = (req, res) => {
     res.send(`
         <div style="text-align:center; padding:50px; font-family:sans-serif; background-color:#F8FAFB; min-height:100vh;">
