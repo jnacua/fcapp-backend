@@ -89,7 +89,7 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 BULLETPROOF LOGIC: Checks Metadata, then scans Description for the ID
+// 🚨 TRIPLE-LAYER CHECK: Reference Number, then Metadata, then Description Regex
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -98,24 +98,28 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      const payload = data?.attributes?.payload;
-      
-      // Extraction Strategy: Check metadata first (reliable), then payment attributes
-      const metadata = data?.attributes?.metadata || payload?.metadata || {};
-      const paymentAttr = payload?.payment?.attributes || payload?.attributes || {};
-      const description = paymentAttr.description || data?.attributes?.description || "";
-      
-      console.log("📝 DATA RECEIVED - Metadata:", JSON.stringify(metadata));
-      console.log("📝 DATA RECEIVED - Description:", description);
+      const attributes = data?.attributes;
+      const payload = attributes?.payload;
+      const paymentAttr = payload?.payment?.attributes || {};
 
-      // Extract 24-char MongoDB ID using Regex
-      const idMatch = description.match(/[a-f\d]{24}/i); 
-      const billId = metadata.billId || (idMatch ? idMatch[0] : null);
+      // 1. Check top-level reference_number (Most reliable)
+      const referenceNo = attributes?.reference_number || payload?.reference_number;
+      
+      // 2. Check metadata
+      const metadataId = attributes?.metadata?.billId || payload?.metadata?.billId;
+      
+      // 3. Last resort: Scan description text
+      const description = paymentAttr.description || attributes?.description || "";
+      const idMatch = description.match(/[a-f\d]{24}/i);
+
+      // Final ID selection: Priority goes to referenceNo
+      const billId = referenceNo || metadataId || (idMatch ? idMatch[0] : null);
+
+      console.log(`🎯 EXTRACTED BILL ID: ${billId}`);
 
       if (billId) {
-        console.log(`🎯 TARGETING BILL ID: ${billId}`);
         const updated = await Payment.findByIdAndUpdate(
-          billId, 
+          billId,
           {
             status: 'PAID',
             transactionNo: paymentAttr.external_reference || data.id,
@@ -127,14 +131,14 @@ exports.paymongoWebhook = async (req, res) => {
         if (updated) {
           console.log(`✅ DATABASE UPDATED: Bill ${billId} is now PAID`);
         } else {
-          console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in MongoDB.`);
+          console.log(`❌ DATABASE ERROR: Bill ID ${billId} found in webhook but not in MongoDB.`);
         }
       } else {
-        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in Metadata or Description.");
+        console.log("⚠️ WEBHOOK WARNING: Could not find Bill ID in reference_number, metadata, or description.");
       }
     }
     
-    // Always acknowledge with 200 OK
+    // Always acknowledge with 200 OK to stop PayMongo from retrying
     res.status(200).send('OK');
   } catch (err) {
     console.error("🔥 WEBHOOK CRITICAL ERROR:", err.message);
@@ -146,6 +150,8 @@ exports.paymongoWebhook = async (req, res) => {
 exports.createPayMongoLink = async (req, res) => {
   try {
     const { billId, amount, type } = req.body;
+
+    console.log(`🚀 CREATING LINK: Bill ${billId} for ${amount} PHP`);
 
     const options = {
       method: 'POST',
@@ -162,20 +168,20 @@ exports.createPayMongoLink = async (req, res) => {
             show_description: true,
             show_line_items: true,
             description: `Bill ID: ${billId}`,
-            // ✅ METADATA: Backup storage for the ID
+            // 🚨 KEY FIX: The reference_number is passed back reliably in the webhook
+            reference_number: billId.toString(), 
             metadata: {
               billId: billId
             },
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(amount * 100), // convert to centavos
+                amount: Math.round(Number(amount) * 100), // convert to centavos
                 name: type,
                 quantity: 1
               }
             ],
             payment_method_types: ['gcash', 'paymaya', 'card'],
-            reference_number: billId,
             success_url: 'https://fcapp-backend.onrender.com/api/payments/success', 
           }
         }
