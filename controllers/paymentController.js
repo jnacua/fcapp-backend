@@ -88,8 +88,8 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook (FINAL STABLE VERSION)
-// 🚨 Strategy: Correctly extract the Session ID to fetch original Bill data via API.
+// ✅ 6. PayMongo Webhook (BRUTE FORCE SESSION SEARCH)
+// 🚨 Strategy: Search the entire body for a "cs_" ID to bypass inconsistent nesting.
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -98,16 +98,15 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // 🚨 THE FIX: PayMongo places the cs_ ID in these specific paths
-      const checkoutSessionId = 
-        data.attributes?.resource?.id || 
-        data.id || 
-        data.attributes?.payload?.attributes?.checkout_session_id;
+      // 🚨 THE BRUTE FORCE FIX: Convert body to string and find the Checkout Session ID
+      const bodyString = JSON.stringify(req.body);
+      const csMatch = bodyString.match(/cs_[a-zA-Z0-9]+/);
+      const checkoutSessionId = csMatch ? csMatch[0] : null;
       
-      console.log(`🔍 RETRIEVING SESSION DETAILS FOR: ${checkoutSessionId}`);
+      console.log(`🔍 BRUTE FORCE SEARCH FOUND: ${checkoutSessionId}`);
 
-      if (!checkoutSessionId || !checkoutSessionId.startsWith('cs_')) {
-        console.log("⚠️ ERROR: Valid Checkout Session ID (cs_...) not found in webhook.");
+      if (!checkoutSessionId) {
+        console.log("⚠️ ERROR: No Checkout Session ID (cs_...) found in webhook string.");
         return res.status(200).send('OK');
       }
 
@@ -124,7 +123,7 @@ exports.paymongoWebhook = async (req, res) => {
 
       const sessionData = response.data.data.attributes;
       
-      // Extract the Bill ID from the source of truth (Reference Number)
+      // Extract the Bill ID from the official session record (Reference No is most stable)
       const billId = sessionData.reference_number || sessionData.metadata?.billId;
 
       console.log(`🎯 VERIFIED BILL ID FROM API: ${billId}`);
@@ -146,7 +145,7 @@ exports.paymongoWebhook = async (req, res) => {
           console.log(`❌ FAIL: Bill ${billId} not found in Database`);
         }
       } else {
-        console.log("⚠️ WARNING: Could not find Bill ID even in Direct API retrieval.");
+        console.log("⚠️ WARNING: Could not find Bill ID even in the Direct API retrieval.");
       }
     }
     
