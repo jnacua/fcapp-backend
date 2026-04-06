@@ -21,15 +21,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // =========================================================
-// ✅ PUBLIC ROUTES (Must be outside auth.protect)
+// ✅ PUBLIC ROUTES
 // =========================================================
-
-// Webhook for PayMongo to update status automatically
-// Final URL: https://fcapp-backend.onrender.com/api/payments/webhook
 router.post('/webhook', paymentController.paymongoWebhook);
-
-// Success page shown in the browser after payment
-// Final URL: https://fcapp-backend.onrender.com/api/payments/success
 router.get('/success', paymentController.paymentSuccess);
 
 // =========================================================
@@ -40,11 +34,7 @@ router.use(auth.protect);
 // --- ADMIN ONLY ---
 router.get('/all', auth.restrictTo('admin'), paymentController.getAll);
 
-/**
- * ✅ FIXED: Added '/create' to the array.
- * This ensures that when Flutter calls ApiService.createBill() at /api/payments/create,
- * the server finds it and creates the bill instead of returning a 404.
- */
+// ✅ FIXED: Added '/create' to the array so Flutter's current call works
 router.post(
     ['/admin/add-bill', '/create-bill', '/create'], 
     auth.restrictTo('admin'), 
@@ -56,11 +46,8 @@ router.delete('/:id', auth.restrictTo('admin'), paymentController.deleteBill);
 
 // --- RESIDENT & ADMIN ---
 router.get('/my-bills', paymentController.getMyBills);
-
-// Matches Flutter: ApiService.getPayMongoUrl() -> /api/payments/paymongo-link
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
-// Manual Screenshot Upload (For residents paying cash/bank transfer)
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
         const { transactionNo } = req.body;
@@ -70,7 +57,7 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
         const bill = await Payment.findById(req.params.billId);
         if (!bill) return res.status(404).json({ error: "Bill not found" });
 
-        bill.status = 'PENDING'; // Admin needs to verify manual uploads
+        bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
         bill.receiptImagePath = req.file.path.replace(/\\/g, "/"); 
         
