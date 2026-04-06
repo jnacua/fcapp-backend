@@ -1,7 +1,7 @@
 const Payment = require('../models/paymentModel');
 const axios = require('axios');
 
-// ✅ 1. Get ALL payments (Admin view)
+// ✅ 1. Get ALL payments (Admin view for the tables)
 exports.getAll = async (req, res) => {
   try {
     const payments = await Payment.find().sort({ createdAt: -1 });
@@ -22,6 +22,7 @@ exports.create = async (req, res) => {
     if (!userId) return res.status(400).json({ message: "User ID is required" });
 
     let finalAmount = amount || 0;
+    // Auto-calculate if it's a water bill
     if (type === 'Water' || type === 'Water Bill') {
        const consumption = (Number(currReading) || 0) - (Number(prevReading) || 0);
        const rate = Number(ratePerCubic) || 25;
@@ -58,7 +59,7 @@ exports.getMyBills = async (req, res) => {
   }
 };
 
-// ✅ 4. Update payment status (Manual Admin Update)
+// ✅ 4. Update payment status (Manual Admin Update for Cash Payments)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -78,7 +79,7 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// ✅ 5. Delete a bill
+// ✅ 5. Delete a bill (Trash icon)
 exports.deleteBill = async (req, res) => {
   try {
     await Payment.findByIdAndDelete(req.params.id);
@@ -89,7 +90,7 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 REFINED LOGIC: Specifically for Checkout Session Success
+// 🚨 CRITICAL: Specifically handles the "checkout_session.payment.paid" event
 exports.paymongoWebhook = async (req, res) => {
   try {
     const event = req.body.data;
@@ -98,13 +99,13 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // Accessing the deeply nested payment attributes
+      // For Checkout Sessions, attributes are nested in attributes.payload.payment.attributes
       const paymentData = event.attributes.payload.payment.attributes;
       const description = paymentData.description || "";
       
       console.log("📝 PROCESSING DESCRIPTION:", description);
 
-      // Extract Bill ID from: "Bill ID: 65f123456789..."
+      // Extract Bill ID from the string: "Bill ID: 65f123456789..."
       const billId = description.includes("Bill ID: ") 
         ? description.split("Bill ID: ")[1].trim() 
         : null;
@@ -129,7 +130,7 @@ exports.paymongoWebhook = async (req, res) => {
         console.log("⚠️ WEBHOOK WARNING: No Bill ID found in the payment description.");
       }
     }
-    // PayMongo requires a 200 OK response to stop resending the event
+    // PayMongo requires a 200 response to acknowledge receipt
     res.status(200).send('OK');
   } catch (err) {
     console.error("❌ WEBHOOK CRITICAL ERROR:", err.message);
@@ -156,7 +157,7 @@ exports.createPayMongoLink = async (req, res) => {
             send_email_receipt: true,
             show_description: true,
             show_line_items: true,
-            // 🚨 THIS STRING MUST MATCH THE WEBHOOK PARSER IN SECTION 6
+            // 🚨 THIS STRING MUST BE EXACTLY PARSED BY THE WEBHOOK (SECTION 6)
             description: `Bill ID: ${billId}`, 
             line_items: [
               {
@@ -182,7 +183,7 @@ exports.createPayMongoLink = async (req, res) => {
   }
 };
 
-// ✅ 8. Payment Success Page
+// ✅ 8. Payment Success Page (Visual feedback for the resident's browser)
 exports.paymentSuccess = (req, res) => {
     res.send(`
         <div style="text-align:center; padding:50px; font-family:sans-serif; background-color:#F8FAFB; min-height:100vh;">
