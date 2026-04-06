@@ -88,8 +88,8 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook (TARGETED SESSION RETRIEVAL)
-// 🚨 Strategy: Extract the Checkout Session ID to fetch the original billId safely.
+// ✅ 6. PayMongo Webhook (FINAL STABLE VERSION)
+// 🚨 Strategy: Correctly extract the Session ID to fetch original Bill data via API.
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -98,13 +98,16 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // 🚨 CRITICAL: Extract the actual Checkout Session ID (starts with cs_)
-      const checkoutSessionId = data.attributes?.payload?.attributes?.checkout_session_id;
+      // 🚨 THE FIX: PayMongo places the cs_ ID in these specific paths
+      const checkoutSessionId = 
+        data.attributes?.resource?.id || 
+        data.id || 
+        data.attributes?.payload?.attributes?.checkout_session_id;
       
       console.log(`🔍 RETRIEVING SESSION DETAILS FOR: ${checkoutSessionId}`);
 
-      if (!checkoutSessionId) {
-        console.log("⚠️ ERROR: No checkout_session_id found in webhook payload.");
+      if (!checkoutSessionId || !checkoutSessionId.startsWith('cs_')) {
+        console.log("⚠️ ERROR: Valid Checkout Session ID (cs_...) not found in webhook.");
         return res.status(200).send('OK');
       }
 
@@ -121,7 +124,7 @@ exports.paymongoWebhook = async (req, res) => {
 
       const sessionData = response.data.data.attributes;
       
-      // Extract the ID from the official session record (Reference No is most stable)
+      // Extract the Bill ID from the source of truth (Reference Number)
       const billId = sessionData.reference_number || sessionData.metadata?.billId;
 
       console.log(`🎯 VERIFIED BILL ID FROM API: ${billId}`);
@@ -143,13 +146,12 @@ exports.paymongoWebhook = async (req, res) => {
           console.log(`❌ FAIL: Bill ${billId} not found in Database`);
         }
       } else {
-        console.log("⚠️ WARNING: Could not find Bill ID even in the Direct API retrieval.");
+        console.log("⚠️ WARNING: Could not find Bill ID even in Direct API retrieval.");
       }
     }
     
     res.status(200).send('OK');
   } catch (err) {
-    // Detailed logging for API failures
     console.error("🔥 WEBHOOK ERROR:", err.response?.data || err.message);
     res.status(500).send('Internal Server Error');
   }
