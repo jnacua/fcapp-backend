@@ -39,7 +39,18 @@ router.use(auth.protect);
 
 // --- ADMIN ONLY ---
 router.get('/all', auth.restrictTo('admin'), paymentController.getAll);
-router.post(['/admin/add-bill', '/create-bill'], auth.restrictTo('admin'), paymentController.create);
+
+/**
+ * ✅ FIXED: Added '/create' to the array.
+ * This ensures that when Flutter calls ApiService.createBill() at /api/payments/create,
+ * the server finds it and creates the bill instead of returning a 404.
+ */
+router.post(
+    ['/admin/add-bill', '/create-bill', '/create'], 
+    auth.restrictTo('admin'), 
+    paymentController.create
+);
+
 router.put('/update-status/:id', auth.restrictTo('admin'), paymentController.updateStatus);
 router.delete('/:id', auth.restrictTo('admin'), paymentController.deleteBill);
 
