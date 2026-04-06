@@ -88,7 +88,8 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook (THE FINAL DEEP-SCAN VERSION)
+// ✅ 6. PayMongo Webhook (RELIABLE SESSION RETRIEVAL)
+// 🚨 Strategy: Use the Session ID to ask PayMongo for the real data.
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -97,50 +98,53 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      const attr = data?.attributes || {};
-      const payload = attr.payload || {};
-      const payloadAttr = payload.attributes || {}; 
-      const paymentAttr = payload.payment?.attributes || {};
+      // 1. Get the Session ID from the webhook
+      const sessionId = data.id || data.attributes?.resource?.id;
+      console.log(`🔍 RETRIEVING SESSION DETAILS FOR: ${sessionId}`);
 
-      // 🚨 THE DEEP HUNT: Check every possible nesting for the billId
-      const billId = 
-        attr.reference_number || 
-        payload.reference_number || 
-        payloadAttr.reference_number ||
-        attr.metadata?.billId || 
-        payload.metadata?.billId || 
-        payloadAttr.metadata?.billId ||
-        paymentAttr.description?.match(/[a-f\d]{24}/i)?.[0];
+      // 2. Fetch the FULL session object directly from PayMongo API
+      const response = await axios.get(
+        `https://api.paymongo.com/v1/checkout_sessions/${sessionId}`,
+        {
+          headers: {
+            accept: 'application/json',
+            authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}`
+          }
+        }
+      );
 
-      console.log(`🎯 EXTRACTED BILL ID: ${billId}`);
+      const sessionData = response.data.data.attributes;
+      
+      // 3. Extract the ID from the official session record
+      const billId = sessionData.reference_number || sessionData.metadata?.billId;
+
+      console.log(`🎯 VERIFIED BILL ID FROM API: ${billId}`);
 
       if (billId && billId !== "null" && billId !== "undefined") {
         const updated = await Payment.findByIdAndUpdate(
           billId,
           {
             status: 'PAID',
-            transactionNo: paymentAttr.external_reference || data.id,
+            transactionNo: sessionId, // Use Session ID as Reference
             paidAt: new Date()
           },
           { new: true }
         );
 
         if (updated) {
-          console.log(`✅ SUCCESS: Bill ${billId} updated to PAID`);
+          console.log(`✅ SUCCESS: Bill ${billId} is now PAID in Database`);
         } else {
-          console.log(`❌ FAIL: Bill ${billId} found in webhook but not in Database`);
+          console.log(`❌ FAIL: Bill ${billId} not found in Database`);
         }
       } else {
-        // Log the internal structure if extraction fails to identify the mismatch
-        console.log("⚠️ DEBUG: payload.attributes:", JSON.stringify(payloadAttr));
-        console.log("⚠️ WARNING: Could not find any Bill ID in the webhook payload.");
+        console.log("⚠️ WARNING: Could not find Bill ID even in the Direct API retrieval.");
       }
     }
     
     res.status(200).send('OK');
   } catch (err) {
     console.error("🔥 WEBHOOK ERROR:", err.message);
-    res.status(500).send('Error');
+    res.status(500).send('Internal Server Error');
   }
 };
 
@@ -173,7 +177,7 @@ exports.createPayMongoLink = async (req, res) => {
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(Number(amount) * 100),
+                amount: Math.round(Number(amount) * 100), // convert to centavos
                 name: type,
                 quantity: 1
               }
