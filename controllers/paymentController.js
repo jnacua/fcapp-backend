@@ -1,7 +1,7 @@
 const Payment = require('../models/paymentModel');
 const axios = require('axios');
 
-// ✅ 1. Get ALL payments (Admin view for the tables)
+// ✅ 1. Get ALL payments (Admin view)
 exports.getAll = async (req, res) => {
   try {
     const payments = await Payment.find().sort({ createdAt: -1 });
@@ -22,7 +22,6 @@ exports.create = async (req, res) => {
     if (!userId) return res.status(400).json({ message: "User ID is required" });
 
     let finalAmount = amount || 0;
-    // Auto-calculate if it's a water bill
     if (type === 'Water' || type === 'Water Bill') {
        const consumption = (Number(currReading) || 0) - (Number(prevReading) || 0);
        const rate = Number(ratePerCubic) || 25;
@@ -59,7 +58,7 @@ exports.getMyBills = async (req, res) => {
   }
 };
 
-// ✅ 4. Update payment status (Manual Admin Update for Cash/Over-the-counter)
+// ✅ 4. Update payment status (Manual)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -90,28 +89,29 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 BULLETPROOF LOGIC: Checks Metadata, then scans Description for the ID
+// 🚨 CRITICAL: Added Optional Chaining (?.) to prevent "undefined" crashes
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
-    const eventType = data.attributes.type;
+    const eventType = data?.attributes?.type;
 
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      const payload = data.attributes.payload;
-      const paymentData = payload.payment.attributes;
-      
-      const description = paymentData.description || "";
-      const metadata = data.attributes.metadata || {};
+      // Safely access nested properties
+      const payload = data?.attributes?.payload;
+      const paymentData = payload?.payment?.attributes || payload?.attributes || {};
+      const metadata = data?.attributes?.metadata || {};
+      const description = paymentData?.description || data?.attributes?.description || "";
       
       console.log("📝 DATA RECEIVED - Description:", description);
 
-      // Extract the 24-char MongoDB ID using Regex (Safety first)
+      // Extract 24-character ID
       const idMatch = description.match(/[a-f\d]{24}/i); 
       const billId = metadata.billId || (idMatch ? idMatch[0] : null);
 
       if (billId) {
+        console.log(`🎯 TARGETING BILL ID: ${billId}`);
         const updated = await Payment.findByIdAndUpdate(
           billId, 
           {
@@ -128,13 +128,13 @@ exports.paymongoWebhook = async (req, res) => {
           console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in MongoDB.`);
         }
       } else {
-        console.log("⚠️ WEBHOOK WARNING: Could not extract a valid Bill ID from Description or Metadata.");
+        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in payload.");
       }
     }
-    // PayMongo requires a 200 response to stop retrying
+    
     res.status(200).send('OK');
   } catch (err) {
-    console.error("❌ WEBHOOK CRITICAL ERROR:", err.message);
+    console.error("🔥 WEBHOOK CRITICAL ERROR:", err.message);
     res.status(500).send('Internal Server Error');
   }
 };
@@ -159,14 +159,13 @@ exports.createPayMongoLink = async (req, res) => {
             show_description: true,
             show_line_items: true,
             description: `Bill ID: ${billId}`,
-            // ✅ BACKUP: Metadata is highly reliable for webhooks
             metadata: {
               billId: billId
             },
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(amount * 100), // convert to centavos
+                amount: Math.round(amount * 100),
                 name: type,
                 quantity: 1
               }
