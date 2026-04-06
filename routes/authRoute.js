@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
-const Audit = require('../models/auditModel'); // ✅ Tracks approvals/rejections
+const Audit = require('../models/auditModel'); 
 const bcrypt = require('bcryptjs'); 
 const multer = require('multer');
 const path = require('path');
@@ -48,7 +48,7 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
     }
 });
 
-// --- 2. LOGIN (UPDATED WITH MISSING FIELDS) ---
+// --- 2. LOGIN ---
 router.post('/login', async (req, res) => {
     try {
         const { email, password, isAdminLogin } = req.body; 
@@ -59,8 +59,8 @@ router.post('/login', async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
-        // Admin Security Check
-        if (isAdminLogin && user.role !== 'ADMIN') {
+        // Admin Security Check (Case-insensitive)
+        if (isAdminLogin && user.role.toUpperCase() !== 'ADMIN') {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
@@ -94,7 +94,6 @@ router.post('/login', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
-                // ✅ ADDED THESE TWO LINES TO FIX N/A AND IMAGE
                 blockLot: user.blockLot || user.blocklot || 'N/A',
                 profileImage: user.profileImage || null
             } 
@@ -105,13 +104,12 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- ✅ NEW: GET ME (FOR FLUTTER HOME REFRESH) ---
+// --- GET ME ---
 router.get('/me', protect, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
         if (!user) return res.status(404).json({ message: "User not found" });
         
-        // We return the keys that match what Flutter's localUserData expects
         res.json({
             id: user._id,
             name: user.name,
@@ -191,13 +189,22 @@ router.post('/reset-password', async (req, res) => {
 
 // --- 6. ADMIN ROUTES ---
 
-// ✅ UPDATED: Added 'all-users' for the Admin Dropdowns in billing
+/**
+ * ✅ FIXED: Modified query to include 'active' users.
+ * In your update-status controller, you likely use 'active' instead of 'approved'.
+ * Using an $or query ensures that no matter which word you use, they show up.
+ */
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const users = await User.find({ role: 'resident', status: 'approved' }).select('name _id blockLot blocklot');
+        const users = await User.find({ 
+            role: 'resident', 
+            status: { $in: ['approved', 'active'] } 
+        }).select('name _id blockLot blocklot status');
+        
         res.json(users);
     } catch (err) {
-        res.status(500).json({ message: "Error" });
+        console.error("All Users Fetch Error:", err);
+        res.status(500).json({ message: "Error fetching residents" });
     }
 });
 

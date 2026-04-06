@@ -21,10 +21,11 @@ exports.register = async (req, res) => {
     const user = await User.create({ 
       email, 
       password: hashedPassword, 
-      role: role || 'resident', // Default role if not provided
+      role: role || 'resident',
       name, 
       mobileNumber, 
-      blockLot 
+      blockLot,
+      status: 'pending' // ✅ Set default status so they show up in Account Approval
     });
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -36,7 +37,7 @@ exports.register = async (req, res) => {
         email: user.email, 
         role: user.role,
         name: user.name,
-        blockLot: user.blockLot // Added here for immediate registration use
+        blockLot: user.blockLot 
       },
       token: token 
     });
@@ -63,7 +64,6 @@ exports.login = async (req, res) => {
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
-    // ✅ FIXED: Added blockLot and profileImage so Flutter receives them on login
     res.json({
       message: 'Login successful',
       token: token,
@@ -73,7 +73,6 @@ exports.login = async (req, res) => {
         role: user.role, 
         name: user.name,
         status: user.status,
-        // Checks both CamelCase and lowercase to match your MongoDB data
         blockLot: user.blockLot || user.blocklot || 'N/A',
         profileImage: user.profileImage || ''
       }
@@ -84,25 +83,51 @@ exports.login = async (req, res) => {
   }
 };
 
+// ================= GET ALL USERS (FOR ADMIN) =================
+// ✅ ADDED: This is what Flutter's AccountsScreen calls
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({}).select('-password');
+    res.status(200).json(users);
+  } catch (err) {
+    console.error("GetAllUsers Error:", err);
+    res.status(500).json({ message: 'Error fetching users' });
+  }
+};
+
+// ================= UPDATE STATUS (FOR ADMIN) =================
+// ✅ ADDED: This handles Approve/Reject/Archive
+exports.updateStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.id, 
+      { status: status.toLowerCase() }, 
+      { new: true }
+    );
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.status(200).json({ message: `User status updated to ${status}`, user });
+  } catch (err) {
+    res.status(500).json({ message: 'Update failed' });
+  }
+};
+
 // ================= GET ME (PROFILE) CONTROLLER =================
-// This is what ApiService.getProfile() in Flutter calls
 exports.getMe = async (req, res) => {
   try {
-    // req.user.id is usually set by your 'protect' middleware
     const user = await User.findById(req.user.id).select('-password'); 
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // ✅ FIXED: Returns all fields needed for HomeScreen/ProfileScreen
     res.json({
       id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
       status: user.status,
-      // Ensures the address shows up even if it's named differently in DB
       blockLot: user.blockLot || user.blocklot || 'N/A',
       profileImage: user.profileImage || '',
       mobileNumber: user.mobileNumber
