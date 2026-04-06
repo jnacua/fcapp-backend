@@ -58,7 +58,7 @@ exports.getMyBills = async (req, res) => {
   }
 };
 
-// ✅ 4. Update payment status (Manual)
+// ✅ 4. Update payment status (Manual Admin Update)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -89,7 +89,7 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 CRITICAL: Added Optional Chaining (?.) to prevent "undefined" crashes
+// 🚨 BULLETPROOF LOGIC: Checks Metadata, then scans Description for the ID
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -98,15 +98,17 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      // Safely access nested properties
       const payload = data?.attributes?.payload;
-      const paymentData = payload?.payment?.attributes || payload?.attributes || {};
-      const metadata = data?.attributes?.metadata || {};
-      const description = paymentData?.description || data?.attributes?.description || "";
       
+      // Extraction Strategy: Check metadata first (reliable), then payment attributes
+      const metadata = data?.attributes?.metadata || payload?.metadata || {};
+      const paymentAttr = payload?.payment?.attributes || payload?.attributes || {};
+      const description = paymentAttr.description || data?.attributes?.description || "";
+      
+      console.log("📝 DATA RECEIVED - Metadata:", JSON.stringify(metadata));
       console.log("📝 DATA RECEIVED - Description:", description);
 
-      // Extract 24-character ID
+      // Extract 24-char MongoDB ID using Regex
       const idMatch = description.match(/[a-f\d]{24}/i); 
       const billId = metadata.billId || (idMatch ? idMatch[0] : null);
 
@@ -116,7 +118,7 @@ exports.paymongoWebhook = async (req, res) => {
           billId, 
           {
             status: 'PAID',
-            transactionNo: paymentData.external_reference || data.id,
+            transactionNo: paymentAttr.external_reference || data.id,
             paidAt: new Date()
           },
           { new: true }
@@ -128,10 +130,11 @@ exports.paymongoWebhook = async (req, res) => {
           console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in MongoDB.`);
         }
       } else {
-        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in payload.");
+        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in Metadata or Description.");
       }
     }
     
+    // Always acknowledge with 200 OK
     res.status(200).send('OK');
   } catch (err) {
     console.error("🔥 WEBHOOK CRITICAL ERROR:", err.message);
@@ -159,13 +162,14 @@ exports.createPayMongoLink = async (req, res) => {
             show_description: true,
             show_line_items: true,
             description: `Bill ID: ${billId}`,
+            // ✅ METADATA: Backup storage for the ID
             metadata: {
               billId: billId
             },
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(amount * 100),
+                amount: Math.round(amount * 100), // convert to centavos
                 name: type,
                 quantity: 1
               }
