@@ -190,17 +190,14 @@ router.post('/reset-password', async (req, res) => {
 // --- 6. ADMIN ROUTES ---
 
 /**
- * ✅ FIXED: Modified query to include 'active' users.
- * In your update-status controller, you likely use 'active' instead of 'approved'.
- * Using an $or query ensures that no matter which word you use, they show up.
+ * ✅ FIXED: Removed the status filter.
+ * This route now returns ALL residents (pending, active, rejected).
+ * Your Flutter code handles the tabs, so the backend needs to provide all the data.
  */
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const users = await User.find({ 
-            role: 'resident', 
-            status: { $in: ['approved', 'active'] } 
-        }).select('name _id blockLot blocklot status');
-        
+        const users = await User.find({ role: 'resident' })
+            .select('name _id email mobileNumber role blockLot blocklot status proofOfResidencyPath');
         res.json(users);
     } catch (err) {
         console.error("All Users Fetch Error:", err);
@@ -210,7 +207,7 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
 
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const users = await User.find({ role: 'resident' }).sort({ createdAt: -1 });
+        const users = await User.find({ role: 'resident', status: 'pending' }).sort({ createdAt: -1 });
         return res.status(200).json(users);
     } catch (err) {
         return res.status(500).json({ message: "Error fetching users" });
