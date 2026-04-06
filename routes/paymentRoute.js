@@ -21,29 +21,27 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // =========================================================
-// ✅ PUBLIC ROUTES (No Token Required)
+// ✅ PUBLIC ROUTES (PayMongo needs these to be open!)
 // =========================================================
-// Webhook must be public so PayMongo can send updates
 router.post('/webhook', paymentController.paymongoWebhook);
-// Success page for browser redirect
 router.get('/success', paymentController.paymentSuccess);
 
 // =========================================================
-// ✅ PROTECTED ROUTES (Require JWT Token)
+// ✅ PROTECTED ROUTES (Require Login)
 // =========================================================
 router.use(auth.protect);
 
-// --- ADMIN ROUTES ---
+// --- ADMIN ---
 router.get('/all', auth.restrictTo('admin'), paymentController.getAll);
 router.post(['/admin/add-bill', '/create-bill'], auth.restrictTo('admin'), paymentController.create);
 router.put('/update-status/:id', auth.restrictTo('admin'), paymentController.updateStatus);
 router.delete('/:id', auth.restrictTo('admin'), paymentController.deleteBill);
 
-// --- RESIDENT ROUTES ---
+// --- RESIDENT ---
 router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
-// Manual Receipt Upload (Fallback/GCash Screenshot)
+// Manual Screenshot Upload
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
         const { transactionNo } = req.body;
