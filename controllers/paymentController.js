@@ -97,26 +97,29 @@ exports.paymongoWebhook = async (req, res) => {
     console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
 
     if (eventType === 'checkout_session.payment.paid') {
-      const attributes = data?.attributes;
-      const payload = attributes?.payload;
-      
-      // 🚨 DEEP SCAN: Look everywhere for the ID
-      // Checkout Sessions often put the reference_number inside payload.attributes
+      const attr = data?.attributes || {};
+      const payload = attr.payload || {};
+      const payloadAttr = payload.attributes || {}; 
+      const paymentAttr = payload.payment?.attributes || {};
+
+      // 🚨 THE DEEP HUNT: Check every possible nesting for the billId
       const billId = 
-        attributes?.reference_number || 
-        payload?.reference_number || 
-        attributes?.metadata?.billId || 
-        payload?.metadata?.billId ||
-        payload?.attributes?.reference_number; // Sometimes it's here too
+        attr.reference_number || 
+        payload.reference_number || 
+        payloadAttr.reference_number ||
+        attr.metadata?.billId || 
+        payload.metadata?.billId || 
+        payloadAttr.metadata?.billId ||
+        paymentAttr.description?.match(/[a-f\d]{24}/i)?.[0];
 
       console.log(`🎯 EXTRACTED BILL ID: ${billId}`);
 
-      if (billId && billId !== "null") {
+      if (billId && billId !== "null" && billId !== "undefined") {
         const updated = await Payment.findByIdAndUpdate(
           billId,
           {
             status: 'PAID',
-            transactionNo: payload?.payment?.attributes?.external_reference || data.id,
+            transactionNo: paymentAttr.external_reference || data.id,
             paidAt: new Date()
           },
           { new: true }
@@ -125,9 +128,11 @@ exports.paymongoWebhook = async (req, res) => {
         if (updated) {
           console.log(`✅ SUCCESS: Bill ${billId} updated to PAID`);
         } else {
-          console.log(`❌ FAIL: Bill ${billId} not found in Database`);
+          console.log(`❌ FAIL: Bill ${billId} found in webhook but not in Database`);
         }
       } else {
+        // Log the internal structure if extraction fails to identify the mismatch
+        console.log("⚠️ DEBUG: payload.attributes:", JSON.stringify(payloadAttr));
         console.log("⚠️ WARNING: Could not find any Bill ID in the webhook payload.");
       }
     }
@@ -157,10 +162,13 @@ exports.createPayMongoLink = async (req, res) => {
       data: {
         data: {
           attributes: {
-            description: `Bill ID: ${billId}`,
-            reference_number: billId.toString(), // Map ID to reference_number
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            description: `BILL_ID_${billId}`, 
+            reference_number: billId.toString(), 
             metadata: {
-              billId: billId
+              billId: billId.toString()
             },
             line_items: [
               {
