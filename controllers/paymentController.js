@@ -89,18 +89,20 @@ exports.deleteBill = async (req, res) => {
 };
 
 // ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// CRITICAL FIX: Enhanced path checking for Checkout Sessions
+// 🚨 REFINED LOGIC: Specifically for Checkout Session Success
 exports.paymongoWebhook = async (req, res) => {
   try {
     const event = req.body.data;
     const eventType = event.attributes.type;
 
+    console.log(`📥 WEBHOOK RECEIVED: ${eventType}`);
+
     if (eventType === 'checkout_session.payment.paid') {
-      // PayMongo nests the payment attributes inside the payload for checkout sessions
-      const paymentObj = event.attributes.payload.payment.attributes;
-      const description = paymentObj.description || "";
+      // Accessing the deeply nested payment attributes
+      const paymentData = event.attributes.payload.payment.attributes;
+      const description = paymentData.description || "";
       
-      console.log("📥 Webhook Received. Processing description:", description);
+      console.log("📝 PROCESSING DESCRIPTION:", description);
 
       // Extract Bill ID from: "Bill ID: 65f123456789..."
       const billId = description.includes("Bill ID: ") 
@@ -112,7 +114,7 @@ exports.paymongoWebhook = async (req, res) => {
           billId, 
           {
             status: 'PAID',
-            transactionNo: paymentObj.external_reference || event.id,
+            transactionNo: paymentData.external_reference || event.id,
             paidAt: new Date()
           },
           { new: true }
@@ -121,15 +123,17 @@ exports.paymongoWebhook = async (req, res) => {
         if (updated) {
           console.log(`✅ DATABASE UPDATED: Bill ${billId} is now PAID`);
         } else {
-          console.log(`❌ Bill ID ${billId} not found in database.`);
+          console.log(`❌ DATABASE ERROR: Bill ID ${billId} not found in collection.`);
         }
+      } else {
+        console.log("⚠️ WEBHOOK WARNING: No Bill ID found in the payment description.");
       }
     }
-    // Always return 200 to acknowledge receipt to PayMongo
+    // PayMongo requires a 200 OK response to stop resending the event
     res.status(200).send('OK');
   } catch (err) {
-    console.error("❌ Webhook Error:", err.message);
-    res.status(500).send('Webhook Error');
+    console.error("❌ WEBHOOK CRITICAL ERROR:", err.message);
+    res.status(500).send('Webhook Processing Failed');
   }
 };
 
@@ -152,11 +156,12 @@ exports.createPayMongoLink = async (req, res) => {
             send_email_receipt: true,
             show_description: true,
             show_line_items: true,
-            description: `Bill ID: ${billId}`, // This is what the webhook parses!
+            // 🚨 THIS STRING MUST MATCH THE WEBHOOK PARSER IN SECTION 6
+            description: `Bill ID: ${billId}`, 
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(amount * 100),
+                amount: Math.round(amount * 100), // convert to centavos
                 name: type,
                 quantity: 1
               }
@@ -172,7 +177,7 @@ exports.createPayMongoLink = async (req, res) => {
     const response = await axios.request(options);
     res.status(200).json({ checkoutUrl: response.data.data.attributes.checkout_url });
   } catch (err) {
-    console.error("❌ PayMongo Link Error:", err.response?.data || err.message);
+    console.error("❌ PAYMONGO API ERROR:", err.response?.data || err.message);
     res.status(500).json({ message: "Could not create payment link" });
   }
 };
@@ -182,10 +187,12 @@ exports.paymentSuccess = (req, res) => {
     res.send(`
         <div style="text-align:center; padding:50px; font-family:sans-serif; background-color:#F8FAFB; min-height:100vh;">
             <div style="background:white; display:inline-block; padding:40px; border-radius:20px; box-shadow: 0 10px 20px rgba(0,0,0,0.05);">
-                <h1 style="color:#176F63; font-size: 40px; margin-bottom: 10px;">✔</h1>
-                <h2 style="color:#176F63; margin-top:0;">Payment Successful!</h2>
-                <p style="color:#666;">Your transaction has been processed. <br> You can now safely close this tab.</p>
-                <p style="font-weight:bold; color:#176F63;">Return to the App to see your updated status.</p>
+                <div style="color:#176F63; font-size: 60px; margin-bottom: 10px;">✔</div>
+                <h2 style="color:#176F63; margin-top:0; font-weight:900;">Payment Successful!</h2>
+                <p style="color:#666; line-height:1.6;">Your transaction has been processed. <br> You can now safely close this tab.</p>
+                <div style="margin-top:25px; padding:15px; background-color:#e8f5f3; border-radius:10px;">
+                  <p style="font-weight:bold; color:#176F63; margin:0;">Return to the App and refresh to see your updated status.</p>
+                </div>
             </div>
         </div>
     `);
