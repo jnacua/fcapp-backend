@@ -32,22 +32,31 @@ router.get('/success', paymentController.paymentSuccess);
 router.use(auth.protect);
 
 // --- ADMIN ONLY ---
-router.get('/all', auth.restrictTo('admin'), paymentController.getAll);
+router.get('/all', auth.restrictTo('ADMIN'), paymentController.getAll);
 
-// ✅ FIXED: Added '/create' to the array so Flutter's current call works
+// Route for creating bills
 router.post(
     ['/admin/add-bill', '/create-bill', '/create'], 
-    auth.restrictTo('admin'), 
+    auth.restrictTo('ADMIN'), 
     paymentController.create
 );
 
-router.put('/update-status/:id', auth.restrictTo('admin'), paymentController.updateStatus);
-router.delete('/:id', auth.restrictTo('admin'), paymentController.deleteBill);
+// ✅ NEW: Route for sending manual email reminders
+// This matches the Flutter call: ${AppConfig.apiUrl}/api/payments/send-reminder
+router.post(
+    '/send-reminder', 
+    auth.restrictTo('ADMIN'), 
+    paymentController.sendManualReminder
+);
+
+router.put('/update-status/:id', auth.restrictTo('ADMIN'), paymentController.updateStatus);
+router.delete('/:id', auth.restrictTo('ADMIN'), paymentController.deleteBill);
 
 // --- RESIDENT & ADMIN ---
 router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
+// Route for manual receipt uploads by residents
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
         const { transactionNo } = req.body;
