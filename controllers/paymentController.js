@@ -88,8 +88,7 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook (AUTOMATIC UPDATE)
-// 🚨 TRIPLE-LAYER CHECK: Reference Number, then Metadata, then Description Regex
+// ✅ 6. PayMongo Webhook (THE FINAL DEEP-SCAN VERSION)
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
@@ -100,49 +99,43 @@ exports.paymongoWebhook = async (req, res) => {
     if (eventType === 'checkout_session.payment.paid') {
       const attributes = data?.attributes;
       const payload = attributes?.payload;
-      const paymentAttr = payload?.payment?.attributes || {};
-
-      // 1. Check top-level reference_number (Most reliable)
-      const referenceNo = attributes?.reference_number || payload?.reference_number;
       
-      // 2. Check metadata
-      const metadataId = attributes?.metadata?.billId || payload?.metadata?.billId;
-      
-      // 3. Last resort: Scan description text
-      const description = paymentAttr.description || attributes?.description || "";
-      const idMatch = description.match(/[a-f\d]{24}/i);
-
-      // Final ID selection: Priority goes to referenceNo
-      const billId = referenceNo || metadataId || (idMatch ? idMatch[0] : null);
+      // 🚨 DEEP SCAN: Look everywhere for the ID
+      // Checkout Sessions often put the reference_number inside payload.attributes
+      const billId = 
+        attributes?.reference_number || 
+        payload?.reference_number || 
+        attributes?.metadata?.billId || 
+        payload?.metadata?.billId ||
+        payload?.attributes?.reference_number; // Sometimes it's here too
 
       console.log(`🎯 EXTRACTED BILL ID: ${billId}`);
 
-      if (billId) {
+      if (billId && billId !== "null") {
         const updated = await Payment.findByIdAndUpdate(
           billId,
           {
             status: 'PAID',
-            transactionNo: paymentAttr.external_reference || data.id,
+            transactionNo: payload?.payment?.attributes?.external_reference || data.id,
             paidAt: new Date()
           },
           { new: true }
         );
 
         if (updated) {
-          console.log(`✅ DATABASE UPDATED: Bill ${billId} is now PAID`);
+          console.log(`✅ SUCCESS: Bill ${billId} updated to PAID`);
         } else {
-          console.log(`❌ DATABASE ERROR: Bill ID ${billId} found in webhook but not in MongoDB.`);
+          console.log(`❌ FAIL: Bill ${billId} not found in Database`);
         }
       } else {
-        console.log("⚠️ WEBHOOK WARNING: Could not find Bill ID in reference_number, metadata, or description.");
+        console.log("⚠️ WARNING: Could not find any Bill ID in the webhook payload.");
       }
     }
     
-    // Always acknowledge with 200 OK to stop PayMongo from retrying
     res.status(200).send('OK');
   } catch (err) {
-    console.error("🔥 WEBHOOK CRITICAL ERROR:", err.message);
-    res.status(500).send('Internal Server Error');
+    console.error("🔥 WEBHOOK ERROR:", err.message);
+    res.status(500).send('Error');
   }
 };
 
@@ -164,19 +157,15 @@ exports.createPayMongoLink = async (req, res) => {
       data: {
         data: {
           attributes: {
-            send_email_receipt: true,
-            show_description: true,
-            show_line_items: true,
             description: `Bill ID: ${billId}`,
-            // 🚨 KEY FIX: The reference_number is passed back reliably in the webhook
-            reference_number: billId.toString(), 
+            reference_number: billId.toString(), // Map ID to reference_number
             metadata: {
               billId: billId
             },
             line_items: [
               {
                 currency: 'PHP',
-                amount: Math.round(Number(amount) * 100), // convert to centavos
+                amount: Math.round(Number(amount) * 100),
                 name: type,
                 quantity: 1
               }
@@ -191,8 +180,8 @@ exports.createPayMongoLink = async (req, res) => {
     const response = await axios.request(options);
     res.status(200).json({ checkoutUrl: response.data.data.attributes.checkout_url });
   } catch (err) {
-    console.error("❌ PAYMONGO API ERROR:", err.response?.data || err.message);
-    res.status(500).json({ message: "Could not create payment link" });
+    console.error("❌ API ERROR:", err.response?.data || err.message);
+    res.status(500).json({ message: "Error" });
   }
 };
 
@@ -204,9 +193,6 @@ exports.paymentSuccess = (req, res) => {
                 <div style="color:#176F63; font-size: 60px; margin-bottom: 10px;">✔</div>
                 <h2 style="color:#176F63; margin-top:0; font-weight:900;">Payment Successful!</h2>
                 <p style="color:#666; line-height:1.6;">Your transaction has been processed. <br> You can now safely close this tab.</p>
-                <div style="margin-top:25px; padding:15px; background-color:#e8f5f3; border-radius:10px;">
-                  <p style="font-weight:bold; color:#176F63; margin:0;">Return to the App and refresh to see your updated status.</p>
-                </div>
             </div>
         </div>
     `);
