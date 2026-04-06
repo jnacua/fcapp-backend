@@ -7,7 +7,7 @@ const fs = require('fs');
 const auth = require('../middleware/authMiddleware'); 
 const paymentController = require('../controllers/paymentController');
 
-// --- MULTER SETUP ---
+// --- MULTER SETUP (For manual receipt uploads) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const dir = 'uploads/payments'; 
@@ -21,9 +21,15 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // =========================================================
-// ✅ PUBLIC ROUTES (PayMongo needs these to be open!)
+// ✅ PUBLIC ROUTES (Must be outside auth.protect)
 // =========================================================
+
+// Webhook for PayMongo to update status automatically
+// Final URL: https://fcapp-backend.onrender.com/api/payments/webhook
 router.post('/webhook', paymentController.paymongoWebhook);
+
+// Success page shown in the browser after payment
+// Final URL: https://fcapp-backend.onrender.com/api/payments/success
 router.get('/success', paymentController.paymentSuccess);
 
 // =========================================================
@@ -31,17 +37,19 @@ router.get('/success', paymentController.paymentSuccess);
 // =========================================================
 router.use(auth.protect);
 
-// --- ADMIN ---
+// --- ADMIN ONLY ---
 router.get('/all', auth.restrictTo('admin'), paymentController.getAll);
 router.post(['/admin/add-bill', '/create-bill'], auth.restrictTo('admin'), paymentController.create);
 router.put('/update-status/:id', auth.restrictTo('admin'), paymentController.updateStatus);
 router.delete('/:id', auth.restrictTo('admin'), paymentController.deleteBill);
 
-// --- RESIDENT ---
+// --- RESIDENT & ADMIN ---
 router.get('/my-bills', paymentController.getMyBills);
+
+// Matches Flutter: ApiService.getPayMongoUrl() -> /api/payments/paymongo-link
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
-// Manual Screenshot Upload
+// Manual Screenshot Upload (For residents paying cash/bank transfer)
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
         const { transactionNo } = req.body;
@@ -51,7 +59,7 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
         const bill = await Payment.findById(req.params.billId);
         if (!bill) return res.status(404).json({ error: "Bill not found" });
 
-        bill.status = 'PENDING';
+        bill.status = 'PENDING'; // Admin needs to verify manual uploads
         bill.transactionNo = transactionNo;
         bill.receiptImagePath = req.file.path.replace(/\\/g, "/"); 
         
