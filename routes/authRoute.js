@@ -192,7 +192,6 @@ router.post('/reset-password', async (req, res) => {
 /**
  * ✅ FIXED: Removed the status filter.
  * This route now returns ALL residents (pending, active, rejected).
- * Your Flutter code handles the tabs, so the backend needs to provide all the data.
  */
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -211,6 +210,35 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
         return res.status(200).json(users);
     } catch (err) {
         return res.status(500).json({ message: "Error fetching users" });
+    }
+});
+
+/**
+ * ✅ NEW: Update Resident Profile
+ * This matches your Flutter ApiService call to /api/auth/update-profile/:id
+ */
+router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = req.body;
+
+        const user = await User.findByIdAndUpdate(id, updateData, { new: true });
+
+        if (!user) {
+            return res.status(404).json({ message: "Resident not found" });
+        }
+
+        // Log the action to the Audit trail
+        await Audit.create({
+            adminName: req.user ? req.user.name : "ADMIN",
+            action: "UPDATE RESIDENT INFO",
+            details: `Updated info for ${user.name} (${user.email})`
+        });
+
+        return res.status(200).json({ message: "Resident updated successfully", user });
+    } catch (err) {
+        console.error("Update Profile Error:", err);
+        return res.status(500).json({ message: "Error updating resident info" });
     }
 });
 
