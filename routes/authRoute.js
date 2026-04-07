@@ -59,12 +59,10 @@ router.post('/login', async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
-        // Admin Security Check (Case-insensitive)
         if (isAdminLogin && user.role.toUpperCase() !== 'ADMIN') {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
-        // Resident Approval Check
         if (user.role === 'resident') {
             const status = user.status.toLowerCase();
             if (status === 'pending') {
@@ -124,79 +122,15 @@ router.get('/me', protect, async (req, res) => {
     }
 });
 
-// --- 3. FORGOT PASSWORD ---
-router.post('/forgot-password', async (req, res) => {
-    const { email } = req.body; 
-    try {
-        const user = await User.findOne({ email });
-        if (!user) return res.status(404).json({ message: "User not found" });
-        
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        user.resetOtp = otp;
-        user.resetOtpExpires = Date.now() + 600000; 
-        await user.save();
-        
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: 'FCAPP - Password Reset OTP',
-            html: `<h2>Password Reset</h2><p>Your code is: <b>${otp}</b></p>`
-        };
-
-        await req.transporter.sendMail(mailOptions);
-        return res.status(200).json({ message: "OTP sent" });
-    } catch (err) { 
-        return res.status(500).json({ message: "Error sending email" }); 
-    }
-});
-
-// --- 4. VERIFY OTP ---
-router.post('/verify-otp', async (req, res) => {
-    const { email, otp } = req.body;
-    try {
-        const user = await User.findOne({ 
-            email: email, 
-            resetOtp: otp, 
-            resetOtpExpires: { $gt: Date.now() } 
-        });
-        if (!user) return res.status(400).json({ message: "Invalid or expired OTP" });
-        return res.status(200).json({ message: "Verified" });
-    } catch (err) {
-        return res.status(500).json({ message: "Error" });
-    }
-});
-
-// --- 5. RESET PASSWORD ---
-router.post('/reset-password', async (req, res) => {
-    try {
-        const { email, newPassword } = req.body;
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(newPassword, salt);
-        
-        await User.findOneAndUpdate(
-            { email: email }, 
-            { 
-                password: hashedPassword, 
-                resetOtp: null, 
-                resetOtpExpires: null 
-            }
-        );
-        return res.status(200).json({ message: "Success" });
-    } catch (err) {
-        return res.status(500).json({ message: "Error" });
-    }
-});
-
 // --- 6. ADMIN ROUTES ---
 
 /**
- * ✅ FIXED: Removed the status filter.
- * This route now returns ALL residents (pending, active, rejected).
+ * ✅ UPDATED: Select includes the 'type' field
  */
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: 'resident' })
-            .select('name _id email mobileNumber role blockLot blocklot status proofOfResidencyPath');
+            .select('name _id email mobileNumber role blockLot blocklot status type proofOfResidencyPath');
         res.json(users);
     } catch (err) {
         console.error("All Users Fetch Error:", err);
@@ -204,23 +138,16 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
-    try {
-        const users = await User.find({ role: 'resident', status: 'pending' }).sort({ createdAt: -1 });
-        return res.status(200).json(users);
-    } catch (err) {
-        return res.status(500).json({ message: "Error fetching users" });
-    }
-});
-
 /**
- * ✅ UPDATED: Update Resident Profile
- * Includes a fail-safe for the Audit Log to prevent 500 errors if adminName is missing.
+ * ✅ UPDATED: Explicitly logs type update and audit fail-safe
  */
 router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { id } = req.params;
         const updateData = req.body;
+
+        // Debug Log: View incoming data in Render logs
+        console.log(`Updating user ${id} with:`, updateData);
 
         const user = await User.findByIdAndUpdate(id, updateData, { new: true });
 
@@ -228,17 +155,15 @@ router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res)
             return res.status(404).json({ message: "Resident not found" });
         }
 
-        // Log the action to the Audit trail with fail-safe for adminName
         await Audit.create({
             adminName: (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN",
             action: "UPDATE RESIDENT INFO",
-            details: `Updated info for ${user.name} (${user.email})`
+            details: `Updated info for ${user.name} (${user.email}). Type set to: ${user.type}`
         });
 
         return res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
         console.error("Update Profile Error:", err);
-        // Include the specific error message to help with debugging
         return res.status(500).json({ message: "Error updating resident info", error: err.message });
     }
 });
