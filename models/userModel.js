@@ -9,11 +9,18 @@ const userSchema = new mongoose.Schema(
         name: { type: String },
         proofOfResidencyPath: { type: String }, 
 
-        // ADDED: Approval Status
+        // ✅ UPDATED: Added 'active' and 'archived' to match your Flutter logic
         status: { 
             type: String, 
-            enum: ['pending', 'approved', 'rejected'], 
+            enum: ['pending', 'approved', 'rejected', 'active', 'archived'], 
             default: 'pending' 
+        },
+
+        // ✅ ADDED: This was missing! It allows 'OWNER' or 'TENANT'
+        type: {
+            type: String,
+            enum: ['OWNER', 'TENANT', 'N/A'],
+            default: 'OWNER'
         },
 
         role: { 
