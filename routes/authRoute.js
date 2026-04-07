@@ -214,8 +214,8 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 /**
- * ✅ NEW: Update Resident Profile
- * This matches your Flutter ApiService call to /api/auth/update-profile/:id
+ * ✅ UPDATED: Update Resident Profile
+ * Includes a fail-safe for the Audit Log to prevent 500 errors if adminName is missing.
  */
 router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -228,9 +228,9 @@ router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res)
             return res.status(404).json({ message: "Resident not found" });
         }
 
-        // Log the action to the Audit trail
+        // Log the action to the Audit trail with fail-safe for adminName
         await Audit.create({
-            adminName: req.user ? req.user.name : "ADMIN",
+            adminName: (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN",
             action: "UPDATE RESIDENT INFO",
             details: `Updated info for ${user.name} (${user.email})`
         });
@@ -238,7 +238,8 @@ router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res)
         return res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
         console.error("Update Profile Error:", err);
-        return res.status(500).json({ message: "Error updating resident info" });
+        // Include the specific error message to help with debugging
+        return res.status(500).json({ message: "Error updating resident info", error: err.message });
     }
 });
 
@@ -253,7 +254,7 @@ router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) 
 
         if (user) {
             await Audit.create({
-                adminName: req.user ? req.user.name : "ADMIN",
+                adminName: (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN",
                 action: `ACCOUNT ${status.toUpperCase()}`,
                 details: `${status.toUpperCase()} account for ${user.name} (${user.email})`
             });
