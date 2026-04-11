@@ -20,7 +20,6 @@ const upload = multer({ storage: storage });
 // --- 1. REGISTRATION ---
 router.post('/register', upload.single('proofImage'), async (req, res) => {
     try {
-        // ✅ We now extract 'status' and 'type' from req.body
         const { email, password, mobileNumber, blockLot, name, status, type } = req.body;
 
         const existingUser = await User.findOne({ email });
@@ -38,8 +37,6 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
             blockLot,
             name,
             role: 'resident', 
-            // ✅ UPDATED: If status is provided (like 'active' from Admin Panel), use it. 
-            // Otherwise, default to 'pending' for mobile registrations.
             status: status || 'pending',
             type: type || 'OWNER', 
             proofOfResidencyPath: req.file ? req.file.path.replace(/\\/g, "/") : null 
@@ -47,7 +44,6 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
 
         await newUser.save();
 
-        // Optional: If an Admin added this directly as active, create an Audit Log
         if (status === 'active') {
             await Audit.create({
                 adminName: "ADMIN", 
@@ -77,7 +73,7 @@ router.post('/login', async (req, res) => {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
-        if (user.role === 'resident') {
+        if (user.role === 'resident' || user.role === 'officer') {
             const status = user.status.toLowerCase();
             if (status === 'pending') {
                 return res.status(403).json({ message: "Wait for admin approval" });
@@ -106,7 +102,7 @@ router.post('/login', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
-                blockLot: user.blockLot || user.blocklot || 'N/A',
+                blockLot: user.blockLot || 'N/A',
                 profileImage: user.profileImage || null
             } 
         });
@@ -116,27 +112,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- GET ME ---
-router.get('/me', protect, async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        if (!user) return res.status(404).json({ message: "User not found" });
-        
-        res.json({
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            status: user.status,
-            blockLot: user.blockLot || user.blocklot || 'N/A',
-            profileImage: user.profileImage || null
-        });
-    } catch (err) {
-        res.status(500).json({ message: "Server Error" });
-    }
-});
-
-// --- 3. FORGOT PASSWORD ---
+// --- 3. FORGOT/RESET PASSWORD ---
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body; 
     try {
@@ -162,7 +138,6 @@ router.post('/forgot-password', async (req, res) => {
     }
 });
 
-// --- 4. VERIFY OTP ---
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
@@ -178,7 +153,6 @@ router.post('/verify-otp', async (req, res) => {
     }
 });
 
-// --- 5. RESET PASSWORD ---
 router.post('/reset-password', async (req, res) => {
     try {
         const { email, newPassword } = req.body;
@@ -199,54 +173,55 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
-// --- 6. ADMIN ROUTES ---
+// --- 4. ADMIN & PROFILE UPDATES ---
 
+// GET ALL RESIDENTS
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const users = await User.find({ role: 'resident' })
-            .select('name _id email mobileNumber role blockLot blocklot status type proofOfResidencyPath');
+        const users = await User.find({ role: { $in: ['resident', 'officer'] } })
+            .select('name _id email mobileNumber role blockLot status type proofOfResidencyPath');
         res.json(users);
     } catch (err) {
-        console.error("All Users Fetch Error:", err);
         res.status(500).json({ message: "Error fetching residents" });
     }
 });
 
-router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
+// ✅ NEW: UPDATE RESIDENT PROFILE (Functional for your Dialog)
+router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const users = await User.find({ role: 'resident', status: 'pending' }).sort({ createdAt: -1 });
-        return res.status(200).json(users);
-    } catch (err) {
-        return res.status(500).json({ message: "Error fetching users" });
-    }
-});
+        const { name, blockLot, role, mobileNumber, email } = req.body;
 
-router.put('/update-profile/:id', protect, restrictTo('ADMIN'), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const updateData = req.body;
+        // Clean and validate role to prevent Enum errors
+        const updatedRole = role ? role.toLowerCase() : undefined;
 
-        console.log(`Updating user ${id} with:`, updateData);
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { 
+                name, 
+                blockLot, 
+                role: updatedRole, 
+                mobileNumber, 
+                email 
+            },
+            { new: true, runValidators: true }
+        );
 
-        const user = await User.findByIdAndUpdate(id, updateData, { new: true });
-
-        if (!user) {
-            return res.status(404).json({ message: "Resident not found" });
-        }
+        if (!user) return res.status(404).json({ message: "Resident not found" });
 
         await Audit.create({
-            adminName: (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN",
+            adminName: req.user.name || "ADMIN",
             action: "UPDATE RESIDENT INFO",
-            details: `Updated info for ${user.name} (${user.email}). Type: ${user.type}, Status: ${user.status}`
+            details: `Updated info for ${user.name} (${user.email}). New Role: ${user.role}`
         });
 
-        return res.status(200).json({ message: "Resident updated successfully", user });
+        res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
-        console.error("Update Profile Error:", err);
-        return res.status(500).json({ message: "Error updating resident info", error: err.message });
+        console.error("Update Error:", err.message);
+        res.status(400).json({ message: err.message });
     }
 });
 
+// UPDATE STATUS ONLY
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
@@ -258,7 +233,7 @@ router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) 
 
         if (user) {
             await Audit.create({
-                adminName: (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN",
+                adminName: req.user.name || "ADMIN",
                 action: `ACCOUNT ${status.toUpperCase()}`,
                 details: `${status.toUpperCase()} account for ${user.name} (${user.email})`
             });

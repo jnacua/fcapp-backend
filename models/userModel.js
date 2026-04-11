@@ -9,23 +9,24 @@ const userSchema = new mongoose.Schema(
         name: { type: String },
         proofOfResidencyPath: { type: String }, 
 
-        // ✅ UPDATED: Added 'active' and 'archived' to match your Flutter logic
+        // ✅ Standardized statuses
         status: { 
             type: String, 
             enum: ['pending', 'approved', 'rejected', 'active', 'archived'], 
             default: 'pending' 
         },
 
-        // ✅ ADDED: This was missing! It allows 'OWNER' or 'TENANT'
+        // Allows 'OWNER' or 'TENANT'
         type: {
             type: String,
             enum: ['OWNER', 'TENANT', 'N/A'],
             default: 'OWNER'
         },
 
+        // ✅ UPDATED: Added 'officer' to the roles
         role: { 
             type: String, 
-            enum: ['resident', 'admin', 'president', 'security'],
+            enum: ['resident', 'admin', 'president', 'security', 'officer'],
             default: 'resident'
         },
         resetOtp: { type: String },
@@ -34,4 +35,4 @@ const userSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model('User', userSchema);s
