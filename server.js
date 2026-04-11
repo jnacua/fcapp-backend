@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path'); 
 const nodemailer = require('nodemailer');
+const http = require('http'); // ✅ Added
+const { Server } = require('socket.io'); // ✅ Added
 
 // Route Imports
 const authRoutes = require('./routes/authRoute');
@@ -16,11 +18,28 @@ const forumRoutes = require('./routes/forumRoute');
 const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
 const paymongoRoutes = require('./routes/paymongoRoutes');
-const dashboardRoutes = require('./routes/dashboardRoute'); // ✅ ADDED
+const dashboardRoutes = require('./routes/dashboardRoute');
 
 const app = express();
+const server = http.createServer(app); // ✅ Create HTTP server
 
-// --- 1. ROBUST CORS CONFIGURATION ---
+// --- 1. SOCKET.IO SETUP ---
+const io = new Server(server, {
+    cors: {
+        origin: '*', // Allows your Flutter Web and Mobile to connect
+        methods: ['GET', 'POST']
+    }
+});
+
+// Make 'io' accessible globally via req.app.get('socketio')
+app.set('socketio', io);
+
+io.on('connection', (socket) => {
+    console.log(`🔌 New connection: ${socket.id}`);
+    socket.on('disconnect', () => console.log('❌ User disconnected'));
+});
+
+// --- 2. ROBUST CORS CONFIGURATION ---
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
@@ -29,11 +48,11 @@ app.use(cors({
     optionsSuccessStatus: 200 
 }));
 
-// --- 2. MIDDLEWARE ---
+// --- 3. MIDDLEWARE ---
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 
-// --- 3. STATIC UPLOADS FOLDER ---
+// --- 4. STATIC UPLOADS FOLDER ---
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // MongoDB Connection
@@ -55,9 +74,9 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/', (req, res) => res.send('Backend is running'));
+app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
 
-// --- 4. API ROUTES ---
+// --- 5. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
@@ -68,9 +87,10 @@ app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
-app.use('/api/dashboard', dashboardRoutes); // ✅ ADDED
+app.use('/api/dashboard', dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+// ✅ Use server.listen instead of app.listen
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server + Real-time Socket running on http://localhost:${PORT}`);
 });
