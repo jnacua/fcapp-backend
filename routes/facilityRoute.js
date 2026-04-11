@@ -77,7 +77,7 @@ router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ==========================================
-// 4. DELETE FACILITY (Admin Only) - ✅ NEW
+// 4. DELETE FACILITY (Admin Only)
 // ==========================================
 router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -137,6 +137,38 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
     } catch (err) {
         console.error("❌ Booking Save Error:", err.message);
         res.status(400).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 7. DELETE/CANCEL BOOKING (✅ ADDED)
+// ============================================================
+router.delete('/bookings/:id', protect, async (req, res) => {
+    try {
+        const bookingId = req.params.id;
+
+        // 1. Find the booking to get the image path before deleting
+        const booking = await Booking.findById(bookingId);
+
+        if (!booking) {
+            return res.status(404).json({ error: "Reservation not found." });
+        }
+
+        // 2. Delete the associated proof of payment file from server if it exists
+        if (booking.proofOfPayment) {
+            const fullPath = path.join(__dirname, '..', booking.proofOfPayment);
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+            }
+        }
+
+        // 3. Delete the record from MongoDB
+        await Booking.findByIdAndDelete(bookingId);
+
+        res.status(200).json({ message: "Reservation cancelled successfully." });
+    } catch (err) {
+        console.error("❌ Delete Booking Error:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 
