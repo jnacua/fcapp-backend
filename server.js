@@ -15,22 +15,25 @@ const facilityRoutes = require('./routes/facilityRoute');
 const forumRoutes = require('./routes/forumRoute');
 const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
-const paymongoRoutes = require('./routes/paymongoRoutes'); // ✅ ADDED: PayMongo Integration
+const paymongoRoutes = require('./routes/paymongoRoutes');
 
 const app = express();
 
-// --- 1. ENHANCED CORS CONFIGURATION ---
+// --- 1. ROBUST CORS CONFIGURATION ---
+// This ensures Flutter Web can perform PATCH and DELETE requests without being blocked
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    credentials: true
+    credentials: true,
+    optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
 
-app.use(express.json());
+// --- 2. MIDDLEWARE ---
+app.use(express.json()); // Essential for parsing JSON bodies from Flutter
 app.use(express.urlencoded({ extended: true })); 
 
-// --- 2. STATIC UPLOADS FOLDER ---
+// --- 3. STATIC UPLOADS FOLDER ---
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // MongoDB Connection
@@ -54,17 +57,17 @@ app.use((req, res, next) => {
 
 app.get('/', (req, res) => res.send('Backend is running'));
 
-// --- 3. API ROUTES ---
+// --- 4. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/incidents', incidentRoutes);
-app.use('/api/facilities', facilityRoutes);
+app.use('/api/facilities', facilityRoutes); // Linked to the route file below
 app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/paymongo', paymongoRoutes); // ✅ ADDED: PayMongo API Endpoint
+app.use('/api/paymongo', paymongoRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

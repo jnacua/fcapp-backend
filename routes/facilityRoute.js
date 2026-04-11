@@ -93,24 +93,31 @@ router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 
 // ------------------------------------------------------------
 // 5. REVIEW BOOKING (Approve/Reject/Cancel - Admin Only)
+// ✅ UPDATED: Added better error handling and forced UPPERCASE status
 // ------------------------------------------------------------
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { status } = req.body;
-        
-        // Find and update the status explicitly to what Admin sent
+        const statusValue = req.body.status;
+
+        if (!statusValue) {
+            return res.status(400).json({ error: "No status provided in request body." });
+        }
+
+        // Find and update the status explicitly to what Admin sent (Standardized to UPPERCASE)
         const updatedBooking = await Booking.findByIdAndUpdate(
             req.params.id,
-            { status: status }, 
+            { status: statusValue.toUpperCase() }, 
             { new: true, runValidators: true }
         );
 
         if (!updatedBooking) {
-            return res.status(404).json({ error: "Booking not found" });
+            return res.status(404).json({ error: "Booking record not found." });
         }
 
+        console.log(`✅ Booking ${req.params.id} updated to: ${statusValue.toUpperCase()}`);
         res.status(200).json(updatedBooking);
     } catch (err) {
+        console.error("❌ PATCH Review Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
@@ -120,6 +127,7 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 // ------------------------------------------------------------
 router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) => {
     try {
+        console.log("--- NEW BOOKING ATTEMPT ---");
         const userId = req.body.userId || (req.user ? req.user._id : null);
         const userName = req.body.userName || (req.user ? req.user.name : "Resident");
         
@@ -138,12 +146,13 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
             bookingDate: req.body.bookingDate,
             timeSlot: req.body.timeSlot,
             fee: req.body.fee ? parseFloat(req.body.fee) : 0,
-            status: req.body.status || 'Pending',
+            status: req.body.status || 'PENDING',
             proofOfPayment: req.file ? req.file.path.replace(/\\/g, "/") : "" 
         });
         
         res.status(201).json(newBooking);
     } catch (err) {
+        console.error("❌ Booking Save Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
@@ -164,7 +173,6 @@ router.delete('/bookings/:id', protect, async (req, res) => {
 
         // 2. Delete the proof of payment image from the folder
         if (booking.proofOfPayment) {
-            // Path logic: goes up one level to find the 'uploads' folder
             const fullPath = path.join(__dirname, '..', booking.proofOfPayment);
             if (fs.existsSync(fullPath)) {
                 fs.unlinkSync(fullPath);
@@ -177,7 +185,7 @@ router.delete('/bookings/:id', protect, async (req, res) => {
         res.status(200).json({ message: "Reservation cancelled successfully." });
     } catch (err) {
         console.error("❌ Delete Booking Error:", err.message);
-        res.status(500).json({ error: "Internal Server Error" });
+        res.status(500).json({ error: err.message });
     }
 });
 
