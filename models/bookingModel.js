@@ -27,8 +27,12 @@ const bookingSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ['Pending', 'Approved', 'Rejected', 'Cancelled'], 
-    default: 'Pending' 
+    // ✅ UPDATED: Added Uppercase versions to match Flutter Admin inputs
+    enum: [
+      'Pending', 'Approved', 'Rejected', 'Cancelled', 
+      'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'
+    ], 
+    default: 'PENDING' 
   },
   proofOfPayment: { 
     type: String, 
