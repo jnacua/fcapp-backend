@@ -175,7 +175,6 @@ router.post('/reset-password', async (req, res) => {
 
 // --- 4. ADMIN & PROFILE UPDATES ---
 
-// GET ALL RESIDENTS
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: { $in: ['resident', 'officer'] } })
@@ -186,20 +185,17 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ✅ NEW: UPDATE RESIDENT PROFILE (Functional for your Dialog)
+// ✅ UPDATED: Functional Update route specifically for the Dialog
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { name, blockLot, role, mobileNumber, email } = req.body;
-
-        // Clean and validate role to prevent Enum errors
-        const updatedRole = role ? role.toLowerCase() : undefined;
 
         const user = await User.findByIdAndUpdate(
             req.params.id,
             { 
                 name, 
                 blockLot, 
-                role: updatedRole, 
+                role: role ? role.toLowerCase() : undefined, 
                 mobileNumber, 
                 email 
             },
@@ -211,17 +207,15 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
         await Audit.create({
             adminName: req.user.name || "ADMIN",
             action: "UPDATE RESIDENT INFO",
-            details: `Updated info for ${user.name} (${user.email}). New Role: ${user.role}`
+            details: `Updated info for ${user.name} (${user.email})`
         });
 
         res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
-        console.error("Update Error:", err.message);
-        res.status(400).json({ message: err.message });
+        res.status(400).json({ error: err.message });
     }
 });
 
-// UPDATE STATUS ONLY
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
@@ -230,15 +224,6 @@ router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) 
             { status: status.toLowerCase() }, 
             { new: true }
         );
-
-        if (user) {
-            await Audit.create({
-                adminName: req.user.name || "ADMIN",
-                action: `ACCOUNT ${status.toUpperCase()}`,
-                details: `${status.toUpperCase()} account for ${user.name} (${user.email})`
-            });
-        }
-
         return res.status(200).json({ message: `User ${status}`, user });
     } catch (err) {
         return res.status(500).json({ message: "Error updating status" });
