@@ -3,22 +3,22 @@ const router = express.Router();
 const User = require('../models/userModel');
 const Incident = require('../models/incidentModel');
 const Payment = require('../models/paymentModel');
-const Booking = require('../models/facilityModel'); // Adjust name if different
+const Booking = require('../models/facilityModel'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        // --- 1. REPORTS DATA ---
+        // --- 1. REPORTS DATA (Case Insensitive) ---
         const totalIncidents = await Incident.countDocuments();
-        const submitted = await Incident.countDocuments({ status: 'pending' });
-        const inProgress = await Incident.countDocuments({ status: 'in-progress' });
-        const completed = await Incident.countDocuments({ status: 'resolved' });
+        const submitted = await Incident.countDocuments({ status: /pending/i });
+        const inProgress = await Incident.countDocuments({ status: /in-progress/i });
+        const completed = await Incident.countDocuments({ status: /resolved|completed/i });
 
-        // --- 2. PAYMENTS DATA (Real counts) ---
-        const paidWater = await Payment.countDocuments({ category: 'WATER', status: 'PAID' });
-        const unpaidWater = await Payment.countDocuments({ category: 'WATER', status: 'UNPAID' });
-        const paidDues = await Payment.countDocuments({ category: 'DUES', status: 'PAID' });
-        const unpaidDues = await Payment.countDocuments({ category: 'DUES', status: 'UNPAID' });
+        // --- 2. PAYMENTS DATA (Case Insensitive & Flexible Category) ---
+        const waterPaid = await Payment.countDocuments({ category: /water/i, status: /paid/i });
+        const waterUnpaid = await Payment.countDocuments({ category: /water/i, status: /unpaid/i });
+        const duesPaid = await Payment.countDocuments({ category: /dues/i, status: /paid/i });
+        const duesUnpaid = await Payment.countDocuments({ category: /dues/i, status: /unpaid/i });
 
         // --- 3. HOMEOWNERS DATA ---
         const totalResidents = await User.countDocuments({ role: { $in: ['resident', 'officer'] } });
@@ -26,21 +26,21 @@ router.get('/stats', protect, restrictTo('ADMIN'), async (req, res) => {
         const totalLots = 600;
 
         // --- 4. FACILITY BOOKINGS ---
-        const courtBookings = await Booking.countDocuments({ facilityName: 'COURT' });
-        const clubhouseBookings = await Booking.countDocuments({ facilityName: 'CLUB HOUSE' });
+        const courtBookings = await Booking.countDocuments({ facilityName: /court/i });
+        const clubhouseBookings = await Booking.countDocuments({ facilityName: /club house|clubhouse/i });
 
         res.status(200).json({
             reports: {
                 submitted,
                 inProgress,
                 completed,
-                total: totalIncidents || 1, // Avoid division by zero
+                total: totalIncidents || 1, 
             },
             payments: {
-                waterPaid: paidWater,
-                waterUnpaid: unpaidWater,
-                duesPaid: paidDues,
-                duesUnpaid: unpaidDues
+                waterPaid,
+                waterUnpaid,
+                duesPaid,
+                duesUnpaid
             },
             homeowners: {
                 total: totalResidents,
