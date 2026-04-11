@@ -185,20 +185,24 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ✅ UPDATED: Functional Update route specifically for the Dialog
+// ✅ UPDATED: Fixed for Owner/Tenant sync issue
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { name, blockLot, role, mobileNumber, email } = req.body;
+        const { name, blockLot, role, mobileNumber, email, type } = req.body;
+
+        const updateData = {
+            name,
+            blockLot,
+            mobileNumber,
+            email,
+            // Force Uppercase for 'type' to match Flutter Dropdown & force Lowercase for 'role'
+            type: type ? type.toUpperCase() : undefined,
+            role: role ? role.toLowerCase() : undefined
+        };
 
         const user = await User.findByIdAndUpdate(
             req.params.id,
-            { 
-                name, 
-                blockLot, 
-                role: role ? role.toLowerCase() : undefined, 
-                mobileNumber, 
-                email 
-            },
+            updateData,
             { new: true, runValidators: true }
         );
 
@@ -207,11 +211,12 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
         await Audit.create({
             adminName: req.user.name || "ADMIN",
             action: "UPDATE RESIDENT INFO",
-            details: `Updated info for ${user.name} (${user.email})`
+            details: `Updated info for ${user.name} (${user.email}). Type: ${user.type}`
         });
 
         res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
+        console.error("Update Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
