@@ -16,21 +16,21 @@ const forumRoutes = require('./routes/forumRoute');
 const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
 const paymongoRoutes = require('./routes/paymongoRoutes');
+const dashboardRoutes = require('./routes/dashboardRoute'); // ✅ ADDED
 
 const app = express();
 
 // --- 1. ROBUST CORS CONFIGURATION ---
-// This ensures Flutter Web can perform PATCH and DELETE requests without being blocked
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
-    optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+    optionsSuccessStatus: 200 
 }));
 
 // --- 2. MIDDLEWARE ---
-app.use(express.json()); // Essential for parsing JSON bodies from Flutter
+app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 
 // --- 3. STATIC UPLOADS FOLDER ---
@@ -63,11 +63,12 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/incidents', incidentRoutes);
-app.use('/api/facilities', facilityRoutes); // Linked to the route file below
+app.use('/api/facilities', facilityRoutes); 
 app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
+app.use('/api/dashboard', dashboardRoutes); // ✅ ADDED
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
