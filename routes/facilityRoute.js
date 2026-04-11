@@ -26,7 +26,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+// ------------------------------------------------------------
 // 1. GET ALL FACILITIES
+// ------------------------------------------------------------
 router.get('/all', protect, async (req, res) => {
     try {
         const facilities = await Facility.find();
@@ -36,7 +38,9 @@ router.get('/all', protect, async (req, res) => {
     }
 });
 
+// ------------------------------------------------------------
 // 2. GET ALL BOOKINGS
+// ------------------------------------------------------------
 router.get('/bookings', protect, async (req, res) => {
     try {
         const bookings = await Booking.find()
@@ -48,14 +52,11 @@ router.get('/bookings', protect, async (req, res) => {
     }
 });
 
-// ==========================================
+// ------------------------------------------------------------
 // 3. CREATE NEW FACILITY (Admin Only)
-// ==========================================
+// ------------------------------------------------------------
 router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        console.log("Admin adding facility:", req.body);
-        
-        // Ensure data is sent correctly from Flutter Web
         const { name, price, capacity } = req.body;
 
         if (!name || !price || !capacity) {
@@ -71,14 +72,13 @@ router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
 
         res.status(201).json(newFacility);
     } catch (err) {
-        console.error("❌ Facility Add Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
 
-// ==========================================
+// ------------------------------------------------------------
 // 4. DELETE FACILITY (Admin Only)
-// ==========================================
+// ------------------------------------------------------------
 router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const deletedFacility = await Facility.findByIdAndDelete(req.params.id);
@@ -91,26 +91,35 @@ router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// 5. REVIEW BOOKING (Approve/Reject)
+// ------------------------------------------------------------
+// 5. REVIEW BOOKING (Approve/Reject/Cancel - Admin Only)
+// ------------------------------------------------------------
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
+        const { status } = req.body;
+        
+        // Find and update the status explicitly to what Admin sent
         const updatedBooking = await Booking.findByIdAndUpdate(
             req.params.id,
-            { status: req.body.status },
-            { new: true }
+            { status: status }, 
+            { new: true, runValidators: true }
         );
+
+        if (!updatedBooking) {
+            return res.status(404).json({ error: "Booking not found" });
+        }
+
         res.status(200).json(updatedBooking);
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
 });
 
-// ============================================================
+// ------------------------------------------------------------
 // 6. SUBMIT BOOKING (From Mobile Phone)
-// ============================================================
+// ------------------------------------------------------------
 router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) => {
     try {
-        console.log("--- NEW BOOKING ATTEMPT ---");
         const userId = req.body.userId || (req.user ? req.user._id : null);
         const userName = req.body.userName || (req.user ? req.user.name : "Resident");
         
@@ -135,27 +144,27 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
         
         res.status(201).json(newBooking);
     } catch (err) {
-        console.error("❌ Booking Save Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
 
-// ============================================================
-// 7. DELETE/CANCEL BOOKING (✅ ADDED)
-// ============================================================
+// ------------------------------------------------------------
+// 7. DELETE/CANCEL BOOKING (Resident or Admin)
+// ------------------------------------------------------------
 router.delete('/bookings/:id', protect, async (req, res) => {
     try {
         const bookingId = req.params.id;
 
-        // 1. Find the booking to get the image path before deleting
+        // 1. Find the booking to handle file cleanup
         const booking = await Booking.findById(bookingId);
 
         if (!booking) {
             return res.status(404).json({ error: "Reservation not found." });
         }
 
-        // 2. Delete the associated proof of payment file from server if it exists
+        // 2. Delete the proof of payment image from the folder
         if (booking.proofOfPayment) {
+            // Path logic: goes up one level to find the 'uploads' folder
             const fullPath = path.join(__dirname, '..', booking.proofOfPayment);
             if (fs.existsSync(fullPath)) {
                 fs.unlinkSync(fullPath);
