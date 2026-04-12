@@ -64,14 +64,15 @@ router.post(
                 return res.status(400).json({ error: "Resident email is required or invalid" });
             }
 
+            // Check if transporter was attached in server.js
             if (!req.transporter) {
                 console.error("❌ ERROR: Email Transporter not found on request object.");
-                return res.status(500).json({ error: "Email service not configured on server." });
+                return res.status(500).json({ error: "Email service is not configured on the server." });
             }
 
             const mailOptions = {
-                // ✅ FIX: Ensure the "from" address is exactly your authenticated EMAIL_USER
-                from: `"FCAPP Admin" <${process.env.EMAIL_USER}>`,
+                // ✅ CRITICAL: This must be the GMAIL address you VERIFIED in Brevo
+                from: `"FCAPP Admin" <jeianpaolonacua07@gmail.com>`, 
                 to: email,
                 subject: `Payment Reminder: ${type} - ${month}`,
                 html: `
@@ -90,15 +91,17 @@ router.post(
                 `
             };
 
+            // Attempt to send email
             await req.transporter.sendMail(mailOptions);
             console.log(`✅ Email successfully sent to ${email}`);
 
             res.status(200).json({ message: "Reminder email sent successfully!" });
         } catch (err) {
-            console.error("❌ NODEMAILER ERROR:", err.message);
+            console.error("❌ MAIL ERROR:", err.message);
             
-            if (err.message.includes('Invalid login') || err.message.includes('auth')) {
-                return res.status(500).json({ error: "Email server authentication failed. Check App Password." });
+            // Check for specific Brevo/SMTP errors
+            if (err.message.includes('rejected') || err.message.includes('sender')) {
+                return res.status(500).json({ error: "Sender email not verified in Brevo." });
             }
 
             res.status(500).json({ error: "Failed to send email. Check Render logs for details." });
@@ -127,7 +130,7 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
 
         bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
-        // ✅ Cloudinary HTTPS URL
+        // ✅ Store the permanent Cloudinary HTTPS URL
         bill.receiptImagePath = req.file.path; 
         
         await bill.save();
