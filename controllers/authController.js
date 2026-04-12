@@ -5,20 +5,26 @@ const nodemailer = require('nodemailer');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// ================= EMAIL CONFIGURATION (GMAIL) =================
-// ✅ FIXED: Updated to use Port 465 and SSL to prevent Render ETIMEDOUT errors
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // Use SSL/TLS
-  auth: {
-    user: 'nacuapaolo@gmail.com',
-    pass: process.env.EMAIL_PASS 
-  },
-  connectionTimeout: 15000, // 15 seconds
-  greetingTimeout: 15000,
-  socketTimeout: 20000,
-});
+// ✅ HELPER: Create Fresh Transporter
+// This prevents "stale" connection timeouts on Render
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, 
+    auth: {
+      user: 'nacuapaolo@gmail.com',
+      pass: process.env.EMAIL_PASS 
+    },
+    tls: {
+      rejectUnauthorized: false,
+      minVersion: "TLSv1.2"
+    },
+    connectionTimeout: 20000, 
+    greetingTimeout: 20000,
+    socketTimeout: 30000,
+  });
+};
 
 // ✅ Reusable Function to send Approval/Rejection emails
 const sendStatusEmail = async (userEmail, userName, status) => {
@@ -29,6 +35,7 @@ const sendStatusEmail = async (userEmail, userName, status) => {
 
   if (!isApproved && !isRejected) return;
 
+  const transporter = createTransporter();
   const mailOptions = {
     from: `"FCAPP System" <nacuapaolo@gmail.com>`,
     to: userEmail,
@@ -37,7 +44,7 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
+    await transporter.sendMail(mailOptions);
     console.log(`✅ SUCCESS: Status email sent!`);
   } catch (error) {
     console.error(`❌ NODEMAILER ERROR: ${error.message}`);
@@ -123,21 +130,18 @@ exports.login = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    // Find user (Case-insensitive)
     const user = await User.findOne({ email: email.toLowerCase() });
     
     if (!user) {
       return res.status(404).json({ message: "User with this email does not exist." });
     }
 
-    // Generate a 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    // Save OTP and Expiry to User model
     user.resetPasswordOTP = otp;
-    user.resetPasswordExpires = Date.now() + 600000; // 10 minutes expiry
+    user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
+    const transporter = createTransporter();
     const mailOptions = {
       from: `"FCAPP System" <nacuapaolo@gmail.com>`,
       to: user.email,
@@ -149,6 +153,7 @@ exports.forgotPassword = async (req, res) => {
              <p>This code expires in 10 minutes.</p>`
     };
 
+    console.log(`📡 Attempting to send OTP to ${user.email}...`);
     await transporter.sendMail(mailOptions);
     console.log(`✅ OTP sent to ${email}`);
     res.status(200).json({ message: "OTP sent to email." });
@@ -195,8 +200,6 @@ exports.resetPassword = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.password = hashedPassword;
-
-    // Clear OTP fields after use
     user.resetPasswordOTP = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
