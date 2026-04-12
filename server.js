@@ -52,26 +52,18 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER (GMAIL VERSION) ---
-// ✅ Removed Brevo. Now using Gmail to match authController.
+// --- 4. EMAIL TRANSPORTER (GMAIL VERSION - NO BLOCKING) ---
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: 'nacuapaolo@gmail.com',
-    pass: process.env.EMAIL_PASS // Your 16-character Google App Password
+    pass: process.env.EMAIL_PASS 
   }
 });
 
-// ✅ CRITICAL: Verify Transporter on Startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ GMAIL ERROR: Connection failed.");
-    console.error("DEBUG INFO:", error.message);
-    console.log("⚠️ Server will continue, but emails might not send.");
-  } else {
-    console.log("✅ EMAIL SERVER READY: Gmail is verified.");
-  }
-});
+// ✅ MODIFIED: We removed the .verify() block that was causing the timeout/hang.
+// The server will now start instantly regardless of the email status.
+console.log("⏳ Email service initialized (Verification skipped to prevent login hangs).");
 
 app.use((req, res, next) => {
   req.transporter = transporter;
