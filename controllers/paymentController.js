@@ -20,6 +20,7 @@ const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
     from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`, 
     to: userEmail,
+    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Helps prevent Gmail spam blocking
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
@@ -58,6 +59,7 @@ const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
     from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`,
     to: userEmail,
+    replyTo: 'jeianpaolonacua07@gmail.com',
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #f5c6cb; padding: 20px; max-width: 600px; border-radius: 10px; background-color: #fff3f3;">
@@ -96,15 +98,12 @@ exports.getAll = async (req, res) => {
   }
 };
 
-// ✅ UPDATED: Create with Deep Logging
 exports.create = async (req, res) => {
   try {
     console.log("📥 [DEBUG] Incoming Bill Data:", JSON.stringify(req.body, null, 2));
-    
     const { userId, userName, amount, type, month, prevReading, currReading, ratePerCubic, dueDate } = req.body;
     
     if (!userId || userId === "null") {
-      console.error("❌ [DEBUG] userId is MISSING in create request!");
       return res.status(400).json({ message: "User ID is required" });
     }
 
@@ -128,10 +127,9 @@ exports.create = async (req, res) => {
     });
 
     await newPayment.save();
-    console.log(`✅ [DEBUG] Bill saved for ${userName} (ID: ${userId})`);
+    console.log(`✅ [DEBUG] Bill saved for ${userName}`);
     res.status(201).json(newPayment);
   } catch (err) {
-    console.error("🔥 Create Bill Error:", err.message);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -217,24 +215,27 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED Manual Reminder with "Last Resort" Email Search
+// ✅ UPDATED Manual Reminder with Deep Search Fallback
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
-    console.log(`🔍 [DEBUG] Reminder request for Bill ID: ${billId}`);
+    console.log(`🔍 [DEBUG] Starting reminder for ID: ${billId}`);
     
-    // Find bill and attempt to populate user
+    // 1. Find bill and attempt to populate user
     const bill = await Payment.findById(billId).populate('userId');
 
     if (!bill) {
       return res.status(404).json({ message: "Payment record not found." });
     }
 
+    // 📄 Log the full bill state to see why population might be failing
+    console.log("📄 [DEBUG] FULL BILL DATA:", JSON.stringify(bill, null, 2));
+
     let residentEmail = bill.userId?.email;
 
-    // 🛡️ FALLBACK: If population failed, manually search User collection by name
+    // 🛡️ FALLBACK: If population failed (common with corrupted IDs), search User collection by name
     if (!residentEmail) {
-      console.log(`⚠️ [DEBUG] Population failed. Searching for user by name: ${bill.userName}`);
+      console.log(`⚠️ [DEBUG] Population failed for resident ${bill.userName}. Searching manually...`);
       const User = require('../models/userModel'); 
       const fallbackUser = await User.findOne({ name: bill.userName });
       residentEmail = fallbackUser?.email;
@@ -242,10 +243,10 @@ exports.sendManualReminder = async (req, res) => {
 
     if (!residentEmail) {
       console.error(`❌ [DEBUG] NO EMAIL FOUND for resident: ${bill.userName}`);
-      return res.status(404).json({ message: "Resident email not found in records." });
+      return res.status(404).json({ message: "Resident email is required or invalid" });
     }
 
-    console.log(`📩 [DEBUG] SUCCESS: Sending reminder to ${residentEmail}`);
+    console.log(`📩 [DEBUG] FOUND EMAIL: ${residentEmail}. Triggering Brevo...`);
 
     const success = await sendReminderEmail(residentEmail, bill);
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
