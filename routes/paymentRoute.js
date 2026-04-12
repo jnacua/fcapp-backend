@@ -50,8 +50,7 @@ router.post(
     paymentController.create
 );
 
-// ✅ FIXED: Route for sending manual email reminders
-// If your controller method isn't working, this logic ensures the email sends
+// ✅ ENHANCED: Route for sending manual email reminders
 router.post(
     '/send-reminder', 
     auth.restrictTo('ADMIN'), 
@@ -59,32 +58,52 @@ router.post(
         try {
             const { email, householdName, amount, month, type } = req.body;
 
-            if (!email) return res.status(400).json({ message: "Resident email is required" });
+            console.log(`📩 Preparing reminder for: ${email}`);
+
+            if (!email || email === "N/A") {
+                return res.status(400).json({ error: "Resident email is required or invalid" });
+            }
+
+            // Check if transporter was attached in app.js
+            if (!req.transporter) {
+                console.error("❌ ERROR: Email Transporter (Nodemailer) not found on request object.");
+                return res.status(500).json({ error: "Email service is not configured on the server." });
+            }
 
             const mailOptions = {
-                from: process.env.EMAIL_USER,
+                from: `"FCAPP Admin" <${process.env.EMAIL_USER}>`,
                 to: email,
-                subject: `Payment Reminder: Unpaid ${type} for ${month}`,
+                subject: `Payment Reminder: ${type} - ${month}`,
                 html: `
-                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
-                        <h2 style="color: #176F63;">FCAPP Payment Reminder</h2>
+                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; max-width: 600px;">
+                        <h2 style="color: #176F63;">Payment Reminder</h2>
                         <p>Hello <b>${householdName}</b>,</p>
                         <p>This is a friendly reminder regarding your unpaid <b>${type}</b> for the month of <b>${month}</b>.</p>
-                        <p style="font-size: 18px;">Amount Due: <span style="color: red; font-weight: bold;">₱${amount}</span></p>
+                        <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                            <span style="font-size: 18px;">Total Amount Due: </span>
+                            <span style="font-size: 22px; color: #d9534f; font-weight: bold;">₱${amount}</span>
+                        </div>
                         <p>Please settle this balance through the mobile app at your earliest convenience.</p>
-                        <br>
-                        <p>Thank you,<br>Homeowners Association Admin</p>
+                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                        <p style="font-size: 12px; color: #888;">This is an automated message from the Homeowners Association Management System.</p>
                     </div>
                 `
             };
 
-            // Use the transporter attached to the request by your app.js
+            // Attempt to send email
             await req.transporter.sendMail(mailOptions);
+            console.log(`✅ Email successfully sent to ${email}`);
 
             res.status(200).json({ message: "Reminder email sent successfully!" });
         } catch (err) {
-            console.error("❌ Reminder Error:", err.message);
-            res.status(500).json({ error: "Failed to send email reminder" });
+            console.error("❌ NODEMAILER ERROR:", err.message);
+            
+            // Specifically check for authentication errors (App Password issues)
+            if (err.message.includes('Invalid login') || err.message.includes('auth')) {
+                return res.status(500).json({ error: "Email server authentication failed. Check App Password." });
+            }
+
+            res.status(500).json({ error: "Failed to send email. Check Render logs for details." });
         }
     }
 );

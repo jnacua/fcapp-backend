@@ -23,7 +23,10 @@ const dashboardRoutes = require('./routes/dashboardRoute');
 const app = express();
 const server = http.createServer(app);
 
-// --- 1. SOCKET.IO SETUP WITH TRACE LOGGING ---
+// ✅ Fix for Render Proxy issues
+app.set('trust proxy', 1);
+
+// --- 1. SOCKET.IO SETUP (Optimized for Render) ---
 const io = new Server(server, {
     cors: {
         origin: "*", 
@@ -31,13 +34,14 @@ const io = new Server(server, {
         credentials: true
     },
     allowEIO3: true,
-    transports: ['websocket', 'polling']
+    transports: ['websocket', 'polling'],
+    // ✅ Keep connection alive on Render Free Tier
+    pingTimeout: 60000,
+    pingInterval: 25000
 });
 
-// ✅ DEBUGGER: This prints EVERY connection attempt to your Render logs
 io.use((socket, next) => {
     console.log(`🔍 DEBUG: Connection Attempt from ${socket.handshake.headers.origin}`);
-    console.log(`   -> ID: ${socket.id} | Transport: ${socket.conn.transport.name}`);
     next();
 });
 
@@ -45,13 +49,12 @@ app.set('socketio', io);
 
 io.on('connection', (socket) => {
     console.log(`✅ SUCCESS: Admin Socket Connected: ${socket.id}`);
-    
     socket.on('disconnect', (reason) => {
         console.log(`🔌 DISCONNECTED: ${socket.id} | Reason: ${reason}`);
     });
 });
 
-// --- 2. ROBUST CORS CONFIGURATION ---
+// --- 2. CORS CONFIGURATION ---
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
@@ -70,12 +73,24 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// Email Transporter
+// --- 4. EMAIL TRANSPORTER CONFIG ---
 const transporter = nodemailer.createTransport({
   service: 'gmail',
+  secure: true, // ✅ Added for stability
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS 
+  }
+});
+
+// ✅ CRITICAL: Verify Transporter on Startup
+// This will tell you in the Render logs IMMEDIATELY if your App Password is wrong
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ NODEMAILER ERROR: Your Email/App Password is incorrect:");
+    console.error(error);
+  } else {
+    console.log("✅ EMAIL SERVER READY: Reminders will be sent successfully.");
   }
 });
 
