@@ -1,8 +1,59 @@
 const User = require('../models/userModel');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer'); // ✅ Added for emails
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// ================= EMAIL CONFIGURATION (GMAIL) =================
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'nacuapaolo@gmail.com',
+    pass: process.env.EMAIL_PASS // ⚠️ Must be the 16-letter App Password
+  }
+});
+
+// ✅ Reusable Function to send Approval/Rejection emails
+const sendStatusEmail = async (userEmail, userName, status) => {
+  const statusLower = status.toLowerCase();
+  // Triggers for either 'active' or 'approved' based on your model's enum
+  const isApproved = statusLower === 'active' || statusLower === 'approved';
+  const isRejected = statusLower === 'rejected';
+
+  // Only proceed if it's a status the user needs to be notified about
+  if (!isApproved && !isRejected) return;
+
+  const mailOptions = {
+    from: `"FCAPP System" <nacuapaolo@gmail.com>`,
+    to: userEmail,
+    subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
+    html: `
+      <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; max-width: 600px; border-radius: 10px;">
+        <div style="background-color: ${isApproved ? '#176F63' : '#d9534f'}; color: white; padding: 10px; text-align: center; border-radius: 5px 5px 0 0;">
+          <h2 style="margin:0;">Account ${isApproved ? 'Approved' : 'Rejected'}</h2>
+        </div>
+        <div style="padding: 20px; border: 1px solid #eee; border-top: none;">
+          <p>Hello <b>${userName}</b>,</p>
+          <p>Your account registration for the <b>Fiesta Casitas Subdivision App</b> has been <b>${statusLower}</b> by the administrator.</p>
+          ${isApproved 
+            ? '<p>You can now log in using your registered credentials to access billing, announcements, and community features.</p>' 
+            : '<p>Unfortunately, your registration could not be verified at this time. If you believe this is an error, please visit the HOA office for assistance.</p>'}
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 11px; color: #888; text-align: center;">Fiesta Casitas HOA Management Team</p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Status email (${statusLower}) successfully sent to: ${userEmail}`);
+  } catch (error) {
+    console.error("❌ Email failed to send:", error.message);
+  }
+};
 
 // ================= REGISTER CONTROLLER =================
 exports.register = async (req, res) => {
@@ -25,7 +76,7 @@ exports.register = async (req, res) => {
       name, 
       mobileNumber, 
       blockLot,
-      status: 'pending' // ✅ Set default status so they show up in Account Approval
+      status: 'pending' // ✅ Default status for approval screen
     });
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -84,7 +135,6 @@ exports.login = async (req, res) => {
 };
 
 // ================= GET ALL USERS (FOR ADMIN) =================
-// ✅ ADDED: This is what Flutter's AccountsScreen calls
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
@@ -96,7 +146,7 @@ exports.getAllUsers = async (req, res) => {
 };
 
 // ================= UPDATE STATUS (FOR ADMIN) =================
-// ✅ ADDED: This handles Approve/Reject/Archive
+// ✅ UPDATED: Now automatically sends email on Approval or Rejection
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -107,8 +157,13 @@ exports.updateStatus = async (req, res) => {
     );
 
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // 📧 Automatically trigger the email notification
+    await sendStatusEmail(user.email, user.name, status);
+
     res.status(200).json({ message: `User status updated to ${status}`, user });
   } catch (err) {
+    console.error("UpdateStatus Error:", err);
     res.status(500).json({ message: 'Update failed' });
   }
 };
