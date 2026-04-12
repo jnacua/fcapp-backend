@@ -52,9 +52,8 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   };
 
   try {
-    // ✅ Wrap in try-catch so an email error doesn't crash the server
     const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ SUCCESS: Email sent! MessageID: ${info.messageId}`);
+    console.log(`✅ SUCCESS: Status email sent! MessageID: ${info.messageId}`);
   } catch (error) {
     console.error(`❌ NODEMAILER ERROR: ${error.message}`);
     console.log("⚠️ Continuing process without email...");
@@ -108,9 +107,17 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
-    // ✅ CHECK STATUS: Ensure users can't enter if still pending
-    if (user.status === 'pending') {
+    // ✅ CASE-INSENSITIVE STATUS CHECK
+    // This allows "APPROVED", "Approved", or "active" to work.
+    const currentStatus = user.status ? user.status.toLowerCase() : 'pending';
+
+    if (currentStatus === 'pending') {
       return res.status(403).json({ message: "Wait for admin approval" });
+    }
+
+    // Allow entry only if status is approved or active
+    if (currentStatus !== 'active' && currentStatus !== 'approved') {
+        return res.status(403).json({ message: "Account is restricted." });
     }
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -149,11 +156,14 @@ exports.getAllUsers = async (req, res) => {
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const user = await User.findByIdAndUpdate(req.params.id, { status: status.toLowerCase() }, { new: true });
+    const user = await User.findByIdAndUpdate(
+      req.params.id, 
+      { status: status }, // Keep capitalization for DB visibility if preferred
+      { new: true }
+    );
     
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // ✅ Trigger email but don't 'await' it if you want the response to be instant
     sendStatusEmail(user.email, user.name, status);
 
     res.status(200).json({ message: `User status updated to ${status}`, user });
