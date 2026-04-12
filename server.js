@@ -35,7 +35,7 @@ const io = new Server(server, {
     },
     allowEIO3: true,
     transports: ['websocket', 'polling'],
-    // ✅ Keep connection alive on Render Free Tier
+    // Keep connection alive on Render Free Tier
     pingTimeout: 60000,
     pingInterval: 25000
 });
@@ -73,21 +73,25 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER CONFIG ---
+// --- 4. EMAIL TRANSPORTER CONFIG (Robust SSL/Port 465 Version) ---
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  secure: true, // ✅ Added for stability
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // Use SSL for Port 465
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS 
-  }
+  },
+  // Added timeouts to handle Render's slow network handshakes
+  connectionTimeout: 10000, 
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
 });
 
 // ✅ CRITICAL: Verify Transporter on Startup
-// This will tell you in the Render logs IMMEDIATELY if your App Password is wrong
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ NODEMAILER ERROR: Your Email/App Password is incorrect:");
+    console.error("❌ NODEMAILER ERROR: Connection failed. Possible reasons: App Password, Port 465 blocked, or Gmail Security.");
     console.error(error);
   } else {
     console.log("✅ EMAIL SERVER READY: Reminders will be sent successfully.");
