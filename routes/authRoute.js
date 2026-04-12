@@ -9,6 +9,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
+const authController = require('../controllers/authController'); // ✅ Ensure this is imported for the logic
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -19,6 +20,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// Storage for Registration Proofs
 const residencyStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -28,14 +30,21 @@ const residencyStorage = new CloudinaryStorage({
     },
 });
 
-// ✅ Consistent Key: 'proofImage' matches mobile app
-const upload = multer({ 
-    storage: residencyStorage,
-    limits: { fileSize: 5 * 1024 * 1024 } 
+// ✅ NEW: Storage for Profile Pictures
+const profilePicStorage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'profile_pictures', 
+        allowed_formats: ['jpg', 'png', 'jpeg'],
+        transformation: [{ width: 500, height: 500, crop: 'fill', gravity: 'face' }] 
+    },
 });
 
+const uploadProof = multer({ storage: residencyStorage });
+const uploadProfile = multer({ storage: profilePicStorage });
+
 // --- 1. REGISTRATION ---
-router.post('/register', upload.single('proofImage'), async (req, res) => {
+router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
     try {
         const { email, password, mobileNumber, blockLot, name, status, type } = req.body;
 
@@ -56,7 +65,6 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
             role: 'resident', 
             status: status || 'pending',
             type: type || 'OWNER', 
-            // ✅ Cloudinary HTTPS URL is stored here
             proofOfResidencyPath: req.file ? req.file.path : null 
         });
 
@@ -132,11 +140,12 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 3. FORGOT/RESET PASSWORD (OMITTED FOR BREVITY - KEEP YOURS) ---
+// --- 3. PROFILE PICTURE UPLOAD ---
+// ✅ ADDED: This matches the endpoint your Flutter Profile Screen is hitting
+router.post('/update-profile-picture', protect, uploadProfile.single('profileImage'), authController.updateProfilePicture);
 
 // --- 4. ADMIN ROUTES ---
 
-// ✅ ADDED: Get Pending Users (Admin Panel needs this)
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ status: 'pending' });
