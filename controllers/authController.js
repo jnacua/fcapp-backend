@@ -209,31 +209,40 @@ exports.getMe = async (req, res) => {
 
 // ================= UPDATE PROFILE PICTURE (CLOUDINARY) =================
 exports.updateProfilePicture = async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image file provided" });
-    }
+  console.log("--- 📸 PROFILE UPLOAD START ---");
+  try {
+    // 1. Check if Multer actually caught the file
+    if (!req.file) {
+      console.log("❌ DEBUG: No file found in req.file. Check Multer config.");
+      return res.status(400).json({ error: "No image file provided" });
+    }
 
-    // Cloudinary automatically provides the permanent URL in req.file.path
-    const imageUrl = req.file.path;
+    console.log("✅ DEBUG: File received from Multer:", req.file.path);
+    console.log("✅ DEBUG: Authenticated User ID:", req.user.id);
 
-    // Find user and update their profileImage field in MongoDB
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      { profileImage: imageUrl },
-      { new: true }
-    );
+    const imageUrl = req.file.path;
 
-    if (!updatedUser) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    // 2. Attempt to update MongoDB
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { profileImage: imageUrl },
+      { new: true }
+    );
 
-    res.status(200).json({
-      message: "Profile picture updated successfully",
-      profileImageUrl: imageUrl
-    });
-  } catch (error) {
-    console.error("Cloudinary Upload Error:", error);
-    res.status(500).json({ error: "Server error during image upload" });
-  }
-};   
+    if (!updatedUser) {
+      console.log("❌ DEBUG: User not found in DB during update.");
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log("✅ DEBUG: MongoDB updated for user:", updatedUser.name);
+    console.log("--- 📸 PROFILE UPLOAD SUCCESS ---");
+
+    res.status(200).json({
+      message: "Profile picture updated successfully",
+      profileImageUrl: imageUrl
+    });
+  } catch (error) {
+    console.error("❌ DEBUG: Cloudinary/DB Error:", error.message);
+    res.status(500).json({ error: "Server error during image upload" });
+  }
+};

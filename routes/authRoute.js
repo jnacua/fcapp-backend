@@ -10,8 +10,16 @@ const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ✅ CRITICAL: Ensure this points to your updated authController
+// ✅ Import controller for profile picture logic
 const authController = require('../controllers/authController'); 
+
+// 🚀 STARTUP DEBUGGING: Checking if the controller loaded correctly
+console.log("--- 🛠️ SERVER BOOT: Checking authController ---");
+if (authController && authController.updateProfilePicture) {
+    console.log("✅ DEBUG: authController.updateProfilePicture is ready!");
+} else {
+    console.log("❌ DEBUG: authController.updateProfilePicture is UNDEFINED. Check your exports!");
+}
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -150,6 +158,10 @@ router.post(
     '/update-profile-picture', 
     protect, 
     uploadProfile.single('profileImage'), 
+    (req, res, next) => {
+        console.log("📡 ROUTE TRIGGERED: /update-profile-picture (Checking Middleware)");
+        next();
+    },
     authController.updateProfilePicture
 );
 
