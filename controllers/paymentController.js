@@ -218,45 +218,71 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED: Manual Reminder with Triple-Layer Fallback (String ID fix)
+// ✅ BULLETPROOF Manual Reminder (Immune to CastErrors and Case-Sensitivity)
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
+    console.log(`\n=== 🚀 [DEBUG] REMINDER TRIGGERED FOR BILL: ${billId} ===`);
     
-    // 1. Find bill and attempt to populate user
-    const bill = await Payment.findById(billId).populate('userId');
-    if (!bill) return res.status(404).json({ message: "Payment record not found." });
+    // 1. Find bill (No populate to avoid silent Mongoose crashes)
+    const bill = await Payment.findById(billId);
+    if (!bill) {
+      console.log("❌ ERROR: Bill not found in database.");
+      return res.status(404).json({ message: "Payment record not found." });
+    }
 
-    // 📄 Print full bill state to Render logs for debugging
-    console.log("📄 [DEBUG] FULL BILL DATA:", JSON.stringify(bill, null, 2));
+    console.log(`✅ FOUND BILL FOR: ${bill.userName}`);
 
-    let residentEmail = bill.userId?.email;
+    let residentEmail = null;
 
-    // 🛡️ FALLBACK 1: Search User manually by ID (Fixes String vs ObjectId mismatch)
+    // 🛡️ ATTEMPT 1: Search by Name first (Safest against database corruption)
+    console.log(`🔍 1. Searching User collection for EXACT name: "${bill.userName}"`);
+    try {
+      // RegExp ensures case-insensitive matching (e.g. "John Doe" matches "john doe")
+      const nameUser = await User.findOne({ name: new RegExp('^' + bill.userName + '$', 'i') });
+      if (nameUser && nameUser.email) {
+        residentEmail = nameUser.email;
+        console.log(`✅ SUCCESS: Found email via Name: ${residentEmail}`);
+      }
+    } catch (e) {
+      console.log(`⚠️ Name search error: ${e.message}`);
+    }
+
+    // 🛡️ ATTEMPT 2: Search by ID string (Wrapped in try/catch to prevent CastError crashes)
     if (!residentEmail && bill.userId) {
-      console.log("⚠️ Population failed. Searching User by ID manually...");
-      const directUser = await User.findById(bill.userId);
-      residentEmail = directUser?.email;
+      console.log(`🔍 2. Name search failed. Attempting search by ID string: "${bill.userId}"`);
+      try {
+        const directUser = await User.findById(bill.userId);
+        if (directUser && directUser.email) {
+          residentEmail = directUser.email;
+          console.log(`✅ SUCCESS: Found email via ID: ${residentEmail}`);
+        }
+      } catch (error) {
+        console.log(`⚠️ ID search skipped (Usually caused by corrupted ID format): ${error.message}`);
+      }
     }
 
-    // 🛡️ FALLBACK 2: Search User by NAME (Last resort brute force)
+    // 🛑 FINAL CHECK
     if (!residentEmail) {
-      console.log(`⚠️ ID search failed. Searching User by Name: ${bill.userName}`);
-      const nameUser = await User.findOne({ name: bill.userName });
-      residentEmail = nameUser?.email;
-    }
-
-    if (!residentEmail) {
-      console.error(`❌ Still undefined for resident: ${bill.userName}`);
+      console.log(`❌ FATAL ERROR: Exhausted all searches. Could not find email for ${bill.userName}`);
+      console.log(`========================================================\n`);
       return res.status(404).json({ message: "Resident email is required or invalid" });
     }
 
-    console.log(`📩 FOUND EMAIL: ${residentEmail}. Sending via Brevo mask...`);
+    console.log(`📨 PREPARING TO SEND VIA BREVO MASK TO: ${residentEmail}`);
 
     const success = await sendReminderEmail(residentEmail, bill);
+    
+    if (success) {
+      console.log(`✅ EMAIL ACCEPTED BY BREVO!`);
+    } else {
+      console.log(`🔥 BREVO REJECTED THE EMAIL.`);
+    }
+    console.log(`========================================================\n`);
+
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
   } catch (err) {
-    console.error("❌ sendManualReminder Error:", err.message);
+    console.error("❌ CRITICAL SERVER CRASH:", err.message);
     res.status(500).json({ error: err.message });
   }
 };
