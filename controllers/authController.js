@@ -5,26 +5,21 @@ const nodemailer = require('nodemailer');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// ✅ HELPER: Create Fresh Transporter
-// This prevents "stale" connection timeouts on Render
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, 
-    auth: {
-      user: 'nacuapaolo@gmail.com',
-      pass: process.env.EMAIL_PASS 
-    },
-    tls: {
-      rejectUnauthorized: false,
-      minVersion: "TLSv1.2"
-    },
-    connectionTimeout: 20000, 
-    greetingTimeout: 20000,
-    socketTimeout: 30000,
-  });
-};
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'nacuapaolo@gmail.com',
+    pass: process.env.EMAIL_PASS 
+  },
+  // ✅ THE CRITICAL ADDITION
+  name: 'gmail.com', // Tells Gmail you are a legitimate sender
+  tls: {
+    rejectUnauthorized: false, // Bypass certificate verification blocks on Render
+    minVersion: "TLSv1.2"
+  }
+});
 
 // ✅ Reusable Function to send Approval/Rejection emails
 const sendStatusEmail = async (userEmail, userName, status) => {
