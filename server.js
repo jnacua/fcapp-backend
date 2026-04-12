@@ -13,7 +13,7 @@ const announcementRoutes = require('./routes/announcementRoute');
 const auditRoutes = require('./routes/auditRoute'); 
 const paymentRoutes = require('./routes/paymentRoute');
 const incidentRoutes = require('./routes/incidentRoute');
-const facilityRoutes = require('./routes/facilityRoute');
+const facilityRoutes = require('./routes/facilityRoute'); 
 const forumRoutes = require('./routes/forumRoute');
 const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
@@ -23,6 +23,7 @@ const dashboardRoutes = require('./routes/dashboardRoute');
 const app = express();
 const server = http.createServer(app);
 
+// ✅ Fix for Render Proxy issues
 app.set('trust proxy', 1);
 
 // --- 1. SOCKET.IO SETUP ---
@@ -51,31 +52,28 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER (TLS/PORT 587 VERSION) ---
-// IMPORTANT: EMAIL_USER must be the account that created the EMAIL_PASS
+// --- 4. EMAIL TRANSPORTER (GMAIL SERVICE VERSION) ---
+// Note: We use the 'service' shortcut for Gmail as it handles port logic internally
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Required for Port 587
+  service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS 
+    user: process.env.EMAIL_USER, // Environment variable from Render
+    pass: process.env.EMAIL_PASS  // Environment variable from Render (App Password)
   },
+  logger: true, // ✅ Shows the SMTP conversation in Render logs
+  debug: true,  // ✅ Shows detailed error messages in Render logs
   tls: {
-    rejectUnauthorized: false // Helps bypass Render network restrictions
-  },
-  connectionTimeout: 20000,
-  greetingTimeout: 20000,
-  socketTimeout: 20000,
+    rejectUnauthorized: false // Bypasses some network certificate blocks
+  }
 });
 
-// Verify the connection on boot
+// ✅ CRITICAL: Verify Transporter on Startup
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ NODEMAILER ERROR: Connection failed. Check if EMAIL_USER matches the App Password owner.");
-    console.error(error);
+    console.error("❌ NODEMAILER ERROR: Connection failed.");
+    console.error("DEBUG INFO:", error.message);
   } else {
-    console.log("✅ EMAIL SERVER READY: Transporter verified successfully.");
+    console.log("✅ EMAIL SERVER READY: Reminders will be sent successfully.");
   }
 });
 
