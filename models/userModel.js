@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema(
         blockLot: { type: String },
         name: { type: String },
         proofOfResidencyPath: { type: String }, 
+        
+        // ✅ Added this because your Login Controller expects it
+        profileImage: { type: String, default: '' }, 
 
         // ✅ Standardized statuses
         status: { 
@@ -23,14 +26,15 @@ const userSchema = new mongoose.Schema(
             default: 'OWNER'
         },
 
-        // ✅ UPDATED: Added 'officer' to the roles
         role: { 
             type: String, 
             enum: ['resident', 'admin', 'president', 'security', 'officer'],
             default: 'resident'
         },
-        resetOtp: { type: String },
-        resetOtpExpires: { type: Date },
+
+        // ✅ SYNCED: Renamed to match the controller logic
+        resetPasswordOTP: { type: String },
+        resetPasswordExpires: { type: Date },
     },
     { timestamps: true }
 );

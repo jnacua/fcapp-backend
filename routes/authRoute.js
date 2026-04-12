@@ -10,10 +10,10 @@ const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ✅ Import controller for profile picture logic
+// ✅ Import controller for profile picture and password logic
 const authController = require('../controllers/authController'); 
 
-// 🚀 STARTUP DEBUGGING: Checking if the controller loaded correctly
+// 🚀 STARTUP DEBUGGING
 console.log("--- 🛠️ SERVER BOOT: Checking authController ---");
 if (authController && authController.updateProfilePicture) {
     console.log("✅ DEBUG: authController.updateProfilePicture is ready!");
@@ -40,14 +40,14 @@ const residencyStorage = new CloudinaryStorage({
     },
 });
 
-// ✅ Storage Engine for User Profile Pictures (Circular Avatars)
+// Storage Engine for User Profile Pictures (Circular Avatars)
 const profilePicStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'profile_pictures', 
         allowed_formats: ['jpg', 'png', 'jpeg'],
         transformation: [
-            { width: 500, height: 500, crop: 'fill', gravity: 'face' } // Automatically finds and centers the face
+            { width: 500, height: 500, crop: 'fill', gravity: 'face' }
         ] 
     },
 });
@@ -55,7 +55,10 @@ const profilePicStorage = new CloudinaryStorage({
 const uploadProof = multer({ storage: residencyStorage });
 const uploadProfile = multer({ storage: profilePicStorage });
 
-// --- 1. REGISTRATION ---
+// ==========================================
+// 1. REGISTRATION & LOGIN
+// ==========================================
+
 router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
     try {
         const { email, password, mobileNumber, blockLot, name, status, type } = req.body;
@@ -98,7 +101,6 @@ router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
     }
 });
 
-// --- 2. LOGIN ---
 router.post('/login', async (req, res) => {
     try {
         const { email, password, isAdminLogin } = req.body; 
@@ -152,20 +154,36 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 3. PROFILE PICTURE UPLOAD ---
-// ✅ This endpoint is hit by the Flutter ProfileScreen
+// ✅ ADDED: Get Current User Profile
+router.get('/me', protect, authController.getMe);
+
+// ==========================================
+// 2. FORGOT PASSWORD FLOW (ADDED)
+// ==========================================
+
+// ✅ Endpoint to request OTP via email
+router.post('/forgot-password', authController.forgotPassword);
+
+// ✅ Endpoint to verify the 6-digit code
+router.post('/verify-otp', authController.verifyOTP);
+
+// ✅ Endpoint to set the new password
+router.post('/reset-password', authController.resetPassword);
+
+// ==========================================
+// 3. PROFILE PICTURE UPLOAD
+// ==========================================
+
 router.post(
     '/update-profile-picture', 
     protect, 
     uploadProfile.single('profileImage'), 
-    (req, res, next) => {
-        console.log("📡 ROUTE TRIGGERED: /update-profile-picture (Checking Middleware)");
-        next();
-    },
     authController.updateProfilePicture
 );
 
-// --- 4. ADMIN ROUTES ---
+// ==========================================
+// 4. ADMIN ROUTES
+// ==========================================
 
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
