@@ -1,5 +1,5 @@
 const express = require('express');
-const router = require('express').Router();
+const router = express.Router();
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
@@ -24,10 +24,13 @@ const storage = new CloudinaryStorage({
     },
 });
 
-// ✅ Matches Flutter: request.files.add('image', ...)
+/**
+ * ✅ Matches Flutter: ApiService uses request.files.add('image', ...)
+ * Using 'image' here prevents the "MulterError: Unexpected field" seen in your logs.
+ */
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } 
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 // ==========================================
@@ -44,7 +47,10 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('image'), async (re
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
-            // ✅ FIXED: Maps req.file.path to 'file' to match your Schema
+            /**
+             * ✅ FIXED: Maps req.file.path (Cloudinary URL) to 'file' 
+             * to match your announcementModel.js Schema
+             */
             file: req.file ? req.file.path : null, 
         };
 
@@ -66,6 +72,7 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('image'), async (re
 // ==========================================
 router.get('/', protect, async (req, res) => {
     try {
+        // Fetches all records; sorting by pinned status then by date
         const announcements = await Announcement.find()
             .sort({ isPinned: -1, date: -1 });
         
