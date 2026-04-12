@@ -9,7 +9,9 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
-const authController = require('../controllers/authController'); // ✅ Import controller for profile picture logic
+
+// ✅ CRITICAL: Ensure this points to your updated authController
+const authController = require('../controllers/authController'); 
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -67,7 +69,6 @@ router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
             role: 'resident', 
             status: status || 'pending',
             type: type || 'OWNER', 
-            // ✅ Cloudinary HTTPS URL is stored here
             proofOfResidencyPath: req.file ? req.file.path : null 
         });
 
@@ -100,12 +101,10 @@ router.post('/login', async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
-        // Security check for Admin Portal access
         if (isAdminLogin && user.role.toUpperCase() !== 'ADMIN') {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
-        // Status checks for Residents/Officers
         if (user.role === 'resident' || user.role === 'officer') {
             const status = user.status.toLowerCase();
             if (status === 'pending') {
@@ -156,7 +155,6 @@ router.post(
 
 // --- 4. ADMIN ROUTES ---
 
-// Fetch all pending applications
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ status: 'pending' });
@@ -166,7 +164,6 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// Fetch all residents and officers
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: { $in: ['resident', 'officer'] } })
@@ -177,7 +174,6 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// Update specific resident information
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { name, blockLot, role, mobileNumber, email, type } = req.body;
@@ -199,7 +195,6 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
     }
 });
 
-// Admin action: Approve/Reject/Archive status
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
