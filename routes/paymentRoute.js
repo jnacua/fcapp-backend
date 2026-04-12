@@ -50,63 +50,11 @@ router.post(
     paymentController.create
 );
 
-// ✅ ENHANCED: Route for sending manual email reminders
+// ✅ FIXED: Route now points directly to our Bulletproof Controller!
 router.post(
     '/send-reminder', 
     auth.restrictTo('ADMIN'), 
-    async (req, res) => {
-        try {
-            const { email, householdName, amount, month, type } = req.body;
-
-            console.log(`📩 Preparing reminder for: ${email}`);
-
-            if (!email || email === "N/A") {
-                return res.status(400).json({ error: "Resident email is required or invalid" });
-            }
-
-            // Check if transporter was attached in server.js
-            if (!req.transporter) {
-                console.error("❌ ERROR: Email Transporter not found on request object.");
-                return res.status(500).json({ error: "Email service is not configured on the server." });
-            }
-
-            const mailOptions = {
-                // ✅ CRITICAL: This must be the GMAIL address you VERIFIED in Brevo
-                from: `"FCAPP Admin" <jeianpaolonacua07@gmail.com>`, 
-                to: email,
-                subject: `Payment Reminder: ${type} - ${month}`,
-                html: `
-                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; max-width: 600px;">
-                        <h2 style="color: #176F63;">Payment Reminder</h2>
-                        <p>Hello <b>${householdName}</b>,</p>
-                        <p>This is a friendly reminder regarding your unpaid <b>${type}</b> for the month of <b>${month}</b>.</p>
-                        <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                            <span style="font-size: 18px;">Total Amount Due: </span>
-                            <span style="font-size: 22px; color: #d9534f; font-weight: bold;">₱${amount}</span>
-                        </div>
-                        <p>Please settle this balance through the mobile app at your earliest convenience.</p>
-                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                        <p style="font-size: 12px; color: #888;">This is an automated message from the Homeowners Association Management System.</p>
-                    </div>
-                `
-            };
-
-            // Attempt to send email
-            await req.transporter.sendMail(mailOptions);
-            console.log(`✅ Email successfully sent to ${email}`);
-
-            res.status(200).json({ message: "Reminder email sent successfully!" });
-        } catch (err) {
-            console.error("❌ MAIL ERROR:", err.message);
-            
-            // Check for specific Brevo/SMTP errors
-            if (err.message.includes('rejected') || err.message.includes('sender')) {
-                return res.status(500).json({ error: "Sender email not verified in Brevo." });
-            }
-
-            res.status(500).json({ error: "Failed to send email. Check Render logs for details." });
-        }
-    }
+    paymentController.sendManualReminder
 );
 
 router.put('/update-status/:id', auth.restrictTo('ADMIN'), paymentController.updateStatus);
