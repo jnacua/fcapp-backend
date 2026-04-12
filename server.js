@@ -30,8 +30,8 @@ const io = new Server(server, {
         methods: ["GET", "POST"],
         credentials: true
     },
-    allowEIO3: true, // Supports older/varied socket clients
-    transports: ['websocket', 'polling'] // Allow fallback to polling if websocket fails
+    allowEIO3: true, // Critical fix for namespace/client compatibility
+    transports: ['websocket', 'polling'] 
 });
 
 app.set('socketio', io);
@@ -93,5 +93,5 @@ app.use('/api/dashboard', dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server + Real-time Socket running on port ${PORT}`);
+    console.log(`🚀 Server + Real-time Socket running on http://localhost:${PORT}`);
 });

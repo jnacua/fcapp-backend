@@ -8,7 +8,6 @@ router.post('/send', auth.protect, async (req, res) => {
     try {
         const { latitude, longitude, residentName, houseNo } = req.body;
 
-        // Save to Database
         const newAlert = new PanicAlert({
             userId: req.user.id,
             residentName,
@@ -19,7 +18,6 @@ router.post('/send', auth.protect, async (req, res) => {
 
         await newAlert.save();
 
-        // 🚨 EMIT REAL-TIME ALERT TO ADMIN 🚨
         const io = req.app.get('socketio');
         if (io) {
             io.emit('new-panic-alert', {
@@ -44,11 +42,10 @@ router.post('/send', auth.protect, async (req, res) => {
 });
 
 // --- 2. GET MY ALERTS (Resident History) ---
-// ✅ FIX: Added this route to match Flutter's call to /panic/my-alerts
 router.get('/my-alerts', auth.protect, async (req, res) => {
     try {
         const alerts = await PanicAlert.find({ userId: req.user.id })
-            .sort({ createdAt: -1 }); // Sort newest to oldest
+            .sort({ createdAt: -1 });
         res.status(200).json(alerts);
     } catch (err) {
         res.status(500).json({ error: err.message });
