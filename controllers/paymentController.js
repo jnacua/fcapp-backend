@@ -7,13 +7,12 @@ const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587, // ✅ Port 587 is more secure and stable for Render-to-Gmail traffic
-  secure: false,
+  port: 465,           // 🔒 The "Unblockable" SSL Port
+  secure: true,        // 🔒 MUST be true when using port 465
   auth: {
     user: process.env.EMAIL_USER, 
     pass: process.env.EMAIL_PASS  
-  },
-  tls: { rejectUnauthorized: false }
+  }
 });
 
 // ✅ Reusable Receipt Email Function
