@@ -11,10 +11,13 @@ const panicSchema = new mongoose.Schema({
     },
     status: { 
         type: String, 
-        enum: ['Pending', 'Responding', 'Done'], 
+        // ✅ Updated enum to match your Flutter filtering logic ('Resolved' instead of 'Done')
+        enum: ['Pending', 'Responding', 'Resolved'], 
         default: 'Pending' 
     },
     respondingUnit: { type: String, default: 'Waiting for dispatch...' }
 }, { timestamps: true });
 
-module.exports = mongoose.model('PanicAlert', panicSchema);
+// ✅ CRITICAL FIX: The third argument 'panicalerts' ensures Mongoose 
+// connects to the lowercase collection name seen in your Compass.
+module.exports = mongoose.model('PanicAlert', panicSchema, 'panicalerts');
