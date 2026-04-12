@@ -1,27 +1,23 @@
 const Payment = require('../models/paymentModel');
-const User = require('../models/userModel'); // 🛡️ Directly imported for the fallback search
+const User = require('../models/userModel'); 
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 
-// ================= EMAIL CONFIGURATION (BREVO) =================
+// ================= EMAIL CONFIGURATION (GMAIL) =================
 
 const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 465,           // 🔒 The "Unblockable" SSL Port
-  secure: true,        // 🔒 MUST be true when using port 465
+  service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER, 
-    pass: process.env.EMAIL_PASS  
+    user: 'nacuapaolo@gmail.com', // ✅ Updated to your new email
+    pass: process.env.EMAIL_PASS  // ⚠️ Must be the 16-letter App Password for nacuapaolo@gmail.com
   }
 });
 
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    // 🛡️ AUTHENTICATED MASK: Bypasses Gmail's security filters that block personal gmail addresses sent via SMTP
-    from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
+    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`, // ✅ Updated
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com', // Residents see this when they click reply
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
@@ -58,10 +54,8 @@ const sendReceiptEmail = async (userEmail, billData) => {
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
-    // 🛡️ AUTHENTICATED MASK: This tells Gmail that Brevo is the authorized sender
-    from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
+    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`, // ✅ Updated
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com',
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #f5c6cb; padding: 20px; max-width: 600px; border-radius: 10px; background-color: #fff3f3;">
@@ -217,13 +211,11 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ BULLETPROOF Manual Reminder (Immune to CastErrors and Case-Sensitivity)
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
     console.log(`\n=== 🚀 [DEBUG] REMINDER TRIGGERED FOR BILL: ${billId} ===`);
     
-    // 1. Find bill (No populate to avoid silent Mongoose crashes)
     const bill = await Payment.findById(billId);
     if (!bill) {
       console.log("❌ ERROR: Bill not found in database.");
@@ -234,10 +226,8 @@ exports.sendManualReminder = async (req, res) => {
 
     let residentEmail = null;
 
-    // 🛡️ ATTEMPT 1: Search by Name first (Safest against database corruption)
     console.log(`🔍 1. Searching User collection for EXACT name: "${bill.userName}"`);
     try {
-      // RegExp ensures case-insensitive matching (e.g. "John Doe" matches "john doe")
       const nameUser = await User.findOne({ name: new RegExp('^' + bill.userName + '$', 'i') });
       if (nameUser && nameUser.email) {
         residentEmail = nameUser.email;
@@ -247,7 +237,6 @@ exports.sendManualReminder = async (req, res) => {
       console.log(`⚠️ Name search error: ${e.message}`);
     }
 
-    // 🛡️ ATTEMPT 2: Search by ID string (Wrapped in try/catch to prevent CastError crashes)
     if (!residentEmail && bill.userId) {
       console.log(`🔍 2. Name search failed. Attempting search by ID string: "${bill.userId}"`);
       try {
@@ -257,25 +246,24 @@ exports.sendManualReminder = async (req, res) => {
           console.log(`✅ SUCCESS: Found email via ID: ${residentEmail}`);
         }
       } catch (error) {
-        console.log(`⚠️ ID search skipped (Usually caused by corrupted ID format): ${error.message}`);
+        console.log(`⚠️ ID search skipped.`);
       }
     }
 
-    // 🛑 FINAL CHECK
     if (!residentEmail) {
       console.log(`❌ FATAL ERROR: Exhausted all searches. Could not find email for ${bill.userName}`);
       console.log(`========================================================\n`);
       return res.status(404).json({ message: "Resident email is required or invalid" });
     }
 
-    console.log(`📨 PREPARING TO SEND VIA BREVO MASK TO: ${residentEmail}`);
+    console.log(`📨 PREPARING TO SEND VIA GMAIL TO: ${residentEmail}`);
 
     const success = await sendReminderEmail(residentEmail, bill);
     
     if (success) {
-      console.log(`✅ EMAIL ACCEPTED BY BREVO!`);
+      console.log(`✅ EMAIL ACCEPTED BY GMAIL!`);
     } else {
-      console.log(`🔥 BREVO REJECTED THE EMAIL.`);
+      console.log(`🔥 GMAIL REJECTED THE EMAIL.`);
     }
     console.log(`========================================================\n`);
 
