@@ -1,30 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const Facility = require('../models/facilityModel'); 
 const Booking = require('../models/bookingModel');   
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ✅ ENSURE DIRECTORIES EXIST
-const uploadDir = 'uploads/payments/';
-if (!fs.existsSync(uploadDir)){
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// --- MULTER CONFIGURATION ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir); 
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, `PROOF-${uniqueSuffix}${path.extname(file.originalname)}`);
-    }
+// ==========================================
+// 0. CLOUDINARY & MULTER CONFIGURATION
+// ==========================================
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const upload = multer({ storage: storage });
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'facility_proofs', 
+        allowed_formats: ['jpg', 'png', 'jpeg'],
+        transformation: [{ width: 1000, crop: 'limit' }] 
+    },
+});
+
+// ✅ Consistent Key: 'proofOfPayment' to match mobile app upload
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // ------------------------------------------------------------
 // 1. GET ALL FACILITIES
@@ -60,7 +65,7 @@ router.post('/add', protect, restrictTo('ADMIN'), async (req, res) => {
         const { name, price, capacity } = req.body;
 
         if (!name || !price || !capacity) {
-            return res.status(400).json({ error: "Missing required fields: Name, Price, or Capacity." });
+            return res.status(400).json({ error: "Missing required fields." });
         }
 
         const newFacility = await Facility.create({
@@ -93,17 +98,15 @@ router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 
 // ------------------------------------------------------------
 // 5. REVIEW BOOKING (Approve/Reject/Cancel - Admin Only)
-// ✅ UPDATED: Added better error handling and forced UPPERCASE status
 // ------------------------------------------------------------
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const statusValue = req.body.status;
 
         if (!statusValue) {
-            return res.status(400).json({ error: "No status provided in request body." });
+            return res.status(400).json({ error: "No status provided." });
         }
 
-        // Find and update the status explicitly to what Admin sent (Standardized to UPPERCASE)
         const updatedBooking = await Booking.findByIdAndUpdate(
             req.params.id,
             { status: statusValue.toUpperCase() }, 
@@ -114,10 +117,8 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
             return res.status(404).json({ error: "Booking record not found." });
         }
 
-        console.log(`✅ Booking ${req.params.id} updated to: ${statusValue.toUpperCase()}`);
         res.status(200).json(updatedBooking);
     } catch (err) {
-        console.error("❌ PATCH Review Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
@@ -127,15 +128,12 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 // ------------------------------------------------------------
 router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) => {
     try {
-        console.log("--- NEW BOOKING ATTEMPT ---");
+        console.log("--- NEW FACILITY BOOKING (CLOUDINARY) ---");
         const userId = req.body.userId || (req.user ? req.user._id : null);
         const userName = req.body.userName || (req.user ? req.user.name : "Resident");
         
-        if (!userId || !userName) {
-            return res.status(400).json({ 
-                error: "Missing User Identification", 
-                details: `userId: ${userId}, userName: ${userName}` 
-            });
+        if (!userId) {
+            return res.status(400).json({ error: "User ID is required" });
         }
 
         const newBooking = await Booking.create({
@@ -147,44 +145,36 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
             timeSlot: req.body.timeSlot,
             fee: req.body.fee ? parseFloat(req.body.fee) : 0,
             status: req.body.status || 'PENDING',
-            proofOfPayment: req.file ? req.file.path.replace(/\\/g, "/") : "" 
+            // ✅ req.file.path is now the permanent Cloudinary URL
+            proofOfPayment: req.file ? req.file.path : "" 
         });
         
+        console.log("✅ Booking saved with Cloudinary proof:", newBooking.proofOfPayment);
         res.status(201).json(newBooking);
     } catch (err) {
-        console.error("❌ Booking Save Error:", err.message);
+        console.error("❌ Booking Error:", err.message);
         res.status(400).json({ error: err.message });
     }
 });
 
 // ------------------------------------------------------------
-// 7. DELETE/CANCEL BOOKING (Resident or Admin)
+// 7. DELETE/CANCEL BOOKING
 // ------------------------------------------------------------
 router.delete('/bookings/:id', protect, async (req, res) => {
     try {
         const bookingId = req.params.id;
-
-        // 1. Find the booking to handle file cleanup
         const booking = await Booking.findById(bookingId);
 
         if (!booking) {
             return res.status(404).json({ error: "Reservation not found." });
         }
 
-        // 2. Delete the proof of payment image from the folder
-        if (booking.proofOfPayment) {
-            const fullPath = path.join(__dirname, '..', booking.proofOfPayment);
-            if (fs.existsSync(fullPath)) {
-                fs.unlinkSync(fullPath);
-            }
-        }
-
-        // 3. Delete the record from MongoDB
+        // NOTE: Cloudinary files are usually deleted via the API using the public_id.
+        // For now, we delete the record from MongoDB.
         await Booking.findByIdAndDelete(bookingId);
 
-        res.status(200).json({ message: "Reservation cancelled successfully." });
+        res.status(200).json({ message: "Reservation removed successfully." });
     } catch (err) {
-        console.error("❌ Delete Booking Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
