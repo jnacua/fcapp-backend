@@ -24,14 +24,14 @@ const app = express();
 const server = http.createServer(app);
 
 // --- 1. SOCKET.IO SETUP ---
-// ✅ UPDATED: Added explicit transports and credentials for better connectivity
 const io = new Server(server, {
     cors: {
-        origin: '*', 
-        methods: ['GET', 'POST'],
+        origin: "*", 
+        methods: ["GET", "POST"],
         credentials: true
     },
-    transports: ['websocket', 'polling'] 
+    allowEIO3: true, // Supports older/varied socket clients
+    transports: ['websocket', 'polling'] // Allow fallback to polling if websocket fails
 });
 
 app.set('socketio', io);
