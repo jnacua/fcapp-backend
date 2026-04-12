@@ -99,45 +99,56 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(`📡 Login request for: ${email}`);
+    console.log(`📡 Login request received for: ${email}`);
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user) {
+      console.log(`❌ Login Fail: User ${email} not found.`);
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!isMatch) {
+      console.log(`❌ Login Fail: Wrong password for ${email}.`);
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
-    // ✅ CASE-INSENSITIVE STATUS CHECK
-    // This allows "APPROVED", "Approved", or "active" to work.
-    const currentStatus = user.status ? user.status.toLowerCase() : 'pending';
+    // ✅ THE KEY FIX: Convert whatever is in the DB to lowercase for comparison
+    const dbStatus = user.status ? user.status.toLowerCase() : 'pending';
+    console.log(`🔍 Checking Status for ${user.name}: Found "${dbStatus}"`);
 
-    if (currentStatus === 'pending') {
+    // 1. If it's explicitly 'pending', block them.
+    if (dbStatus === 'pending') {
       return res.status(403).json({ message: "Wait for admin approval" });
     }
 
-    // Allow entry only if status is approved or active
-    if (currentStatus !== 'active' && currentStatus !== 'approved') {
-        return res.status(403).json({ message: "Account is restricted." });
+    // 2. Allow entry if status is 'active' OR 'approved' (handles your "APPROVED" case)
+    if (dbStatus === 'active' || dbStatus === 'approved') {
+      const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
+      console.log(`✅ LOGIN SUCCESS: Access granted to ${user.name}`);
+      
+      return res.json({
+        message: 'Login successful',
+        token: token,
+        user: { 
+          id: user._id, 
+          email: user.email, 
+          role: user.role,  
+          name: user.name,
+          status: user.status, // Sends the original "APPROVED" back to Flutter
+          blockLot: user.blockLot || 'N/A',
+          profileImage: user.profileImage || ''
+        }
+      });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    // 3. Fallback for any other status (rejected, archived, etc.)
+    console.log(`❌ Login Fail: Account status is "${dbStatus}"`);
+    return res.status(403).json({ message: "Account is restricted. Contact admin." });
 
-    console.log(`✅ Login Success: ${user.name}`);
-    res.json({
-      message: 'Login successful',
-      token: token,
-      user: { 
-        id: user._id, 
-        email: user.email, 
-        role: user.role,  
-        name: user.name,
-        status: user.status,
-        blockLot: user.blockLot || 'N/A',
-        profileImage: user.profileImage || ''
-      }
-    });
   } catch (err) {
-    console.error("❌ LOGIN ERROR:", err);
+    console.error("❌ CRITICAL LOGIN ERROR:", err);
     res.status(500).json({ message: 'Server error during login' });
   }
 };
