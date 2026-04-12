@@ -4,14 +4,13 @@ const nodemailer = require('nodemailer');
 
 // ================= EMAIL CONFIGURATION (BREVO) =================
 
-// ✅ Setup the Brevo Transporter (Bypassing Render Blocks)
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 2525, // Port 2525 is more stable on Render
+  port: 2525, 
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER, // Your Brevo Login (a7dd86001...)
-    pass: process.env.EMAIL_PASS  // Your LONG Brevo SMTP Key
+    user: process.env.EMAIL_USER, 
+    pass: process.env.EMAIL_PASS  
   },
   tls: { rejectUnauthorized: false }
 });
@@ -19,7 +18,6 @@ const transporter = nodemailer.createTransport({
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    // ✅ CRITICAL: Must be your verified sender
     from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`, 
     to: userEmail,
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
@@ -98,10 +96,17 @@ exports.getAll = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Create with Deep Logging
 exports.create = async (req, res) => {
   try {
+    console.log("📥 [DEBUG] Incoming Bill Data:", JSON.stringify(req.body, null, 2));
+    
     const { userId, userName, amount, type, month, prevReading, currReading, ratePerCubic, dueDate } = req.body;
-    if (!userId) return res.status(400).json({ message: "User ID is required" });
+    
+    if (!userId || userId === "null") {
+      console.error("❌ [DEBUG] userId is MISSING in create request!");
+      return res.status(400).json({ message: "User ID is required" });
+    }
 
     let finalAmount = amount || 0;
     if (type.toLowerCase().includes('water')) {
@@ -123,8 +128,10 @@ exports.create = async (req, res) => {
     });
 
     await newPayment.save();
+    console.log(`✅ [DEBUG] Bill saved for ${userName} (ID: ${userId})`);
     res.status(201).json(newPayment);
   } catch (err) {
+    console.error("🔥 Create Bill Error:", err.message);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -210,10 +217,11 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED Manual Reminder with Manual User Lookup Fallback
+// ✅ UPDATED Manual Reminder with "Last Resort" Email Search
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
+    console.log(`🔍 [DEBUG] Reminder request for Bill ID: ${billId}`);
     
     // Find bill and attempt to populate user
     const bill = await Payment.findById(billId).populate('userId');
@@ -224,20 +232,20 @@ exports.sendManualReminder = async (req, res) => {
 
     let residentEmail = bill.userId?.email;
 
-    // 🛡️ FALLBACK: If population failed, manually query the User model
-    if (!residentEmail && bill.userId) {
-      console.log(`⚠️ Population failed for Bill ${billId}. Attempting manual user lookup...`);
-      const User = require('../models/userModel'); // Ensure this path is correct
-      const directUser = await User.findById(bill.userId);
-      residentEmail = directUser?.email;
+    // 🛡️ FALLBACK: If population failed, manually search User collection by name
+    if (!residentEmail) {
+      console.log(`⚠️ [DEBUG] Population failed. Searching for user by name: ${bill.userName}`);
+      const User = require('../models/userModel'); 
+      const fallbackUser = await User.findOne({ name: bill.userName });
+      residentEmail = fallbackUser?.email;
     }
 
     if (!residentEmail) {
-      console.error(`❌ Still unable to find email for Bill ID: ${billId}`);
+      console.error(`❌ [DEBUG] NO EMAIL FOUND for resident: ${bill.userName}`);
       return res.status(404).json({ message: "Resident email not found in records." });
     }
 
-    console.log(`📩 Preparing reminder for: ${residentEmail}`);
+    console.log(`📩 [DEBUG] SUCCESS: Sending reminder to ${residentEmail}`);
 
     const success = await sendReminderEmail(residentEmail, bill);
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
