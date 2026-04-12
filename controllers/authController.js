@@ -7,20 +7,20 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * ✅ BULLETPROOF TRANSPORTER CONFIGURATION
- * We define this correctly at the top so it is accessible to all functions.
- * Using Port 465 + name + tls settings to force Render to talk to Gmail.
+ * Using Port 465 + pool:true to keep the connection alive on Render.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
   secure: true, 
+  pool: true, // ✅ Keeps connection open to prevent handshake timeouts
   auth: {
     user: 'nacuapaolo@gmail.com',
     pass: process.env.EMAIL_PASS 
   },
-  name: 'gmail.com', // 👈 Crucial: Identifies the server to Gmail
+  name: 'gmail.com',
   tls: {
-    rejectUnauthorized: false, // 👈 Crucial: Bypasses SSL handshake blocks
+    rejectUnauthorized: false, // Bypasses SSL handshake blocks
     minVersion: "TLSv1.2"
   },
   connectionTimeout: 20000, 
@@ -121,7 +121,7 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    // ✅ DEBUG LOG: If email STILL fails, get the code from your Render Logs!
+    // ✅ SAFETY LOG: Copy this code from Render Logs if email is delayed!
     console.log(`\n*****************************************`);
     console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
     console.log(`*****************************************\n`);
@@ -130,16 +130,21 @@ exports.forgotPassword = async (req, res) => {
       from: `"FCAPP System" <nacuapaolo@gmail.com>`,
       to: user.email,
       subject: "Your Password Reset Code - FCAPP",
-      html: `<h2>Password Reset Request</h2>
-             <p>Hello ${user.name},</p>
-             <p>Your 6-digit verification code is: <b style="font-size: 24px; color: #66BB8A;">${otp}</b></p>
-             <p>This code expires in 10 minutes.</p>`
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+          <h2 style="color: #66BB8A;">Password Reset Request</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your 6-digit verification code is:</p>
+          <h1 style="background: #f4f4f4; padding: 10px; text-align: center; letter-spacing: 5px; color: #333;">${otp}</h1>
+          <p>This code expires in 10 minutes.</p>
+        </div>`
     };
 
     /**
-     * ✅ THE FIX: We trigger the email but DO NOT wait for it to finish 
-     * before telling the Flutter app that the request was successful.
-     * This stops the "Spinnner of Death" on the phone.
+     * ✅ NON-BLOCKING SEND:
+     * We don't use 'await' here. The server returns 200 to the app 
+     * immediately so the screen changes, while the email sends 
+     * in the background.
      */
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
@@ -149,8 +154,7 @@ exports.forgotPassword = async (req, res) => {
       }
     });
 
-    // Return success instantly so the user can go to the next screen
-    res.status(200).json({ message: "Request received. Check your email (or logs) for the code." });
+    res.status(200).json({ message: "OTP generated successfully." });
 
   } catch (err) {
     console.error("❌ Forgot Password Error:", err);
