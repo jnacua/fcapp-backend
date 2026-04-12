@@ -6,7 +6,7 @@ const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587, // ✅ Switched to 587 for better Gmail deliverability
+  port: 587, // ✅ Port 587 is the most reliable for Gmail deliverability
   secure: false,
   auth: {
     user: process.env.EMAIL_USER, 
@@ -18,9 +18,10 @@ const transporter = nodemailer.createTransport({
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`, 
+    // 🛡️ Bypasses Gmail blocking by using Brevo's authenticated domain
+    from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Helps Gmail verify the sender
+    replyTo: 'jeianpaolonacua07@gmail.com', // Residents still see and reply to your Gmail
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
@@ -57,9 +58,10 @@ const sendReceiptEmail = async (userEmail, billData) => {
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`,
+    // 🛡️ Bypasses Gmail blocking by using Brevo's authenticated domain
+    from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Crucial for avoiding "Silent Dropping"
+    replyTo: 'jeianpaolonacua07@gmail.com',
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #f5c6cb; padding: 20px; max-width: 600px; border-radius: 10px; background-color: #fff3f3;">
@@ -215,11 +217,11 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED Manual Reminder with Manual User Search Fallback
+// ✅ UPDATED Manual Reminder with 3-Layer Safety Search
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
-    console.log(`🔍 [DEBUG] Starting reminder for ID: ${billId}`);
+    const User = require('../models/userModel'); // 👈 Import user model directly for fallback
     
     const bill = await Payment.findById(billId).populate('userId');
 
@@ -227,25 +229,26 @@ exports.sendManualReminder = async (req, res) => {
       return res.status(404).json({ message: "Payment record not found." });
     }
 
-    // 📄 Log the full bill state to see why population might be failing
-    console.log("📄 [DEBUG] FULL BILL DATA:", JSON.stringify(bill, null, 2));
-
     let residentEmail = bill.userId?.email;
 
-    // 🛡️ FALLBACK: If population failed, manually search User collection by name
+    // 🛡️ FALLBACK 1: If population failed, search User collection manually by the ID string
+    if (!residentEmail && bill.userId) {
+      const directUser = await User.findById(bill.userId);
+      residentEmail = directUser?.email;
+    }
+
+    // 🛡️ FALLBACK 2: If ID search failed, search User collection by the Resident NAME
     if (!residentEmail) {
-      console.log(`⚠️ [DEBUG] Population failed for resident ${bill.userName}. Searching manually...`);
-      const User = require('../models/userModel'); 
-      const fallbackUser = await User.findOne({ name: bill.userName });
-      residentEmail = fallbackUser?.email;
+      const nameUser = await User.findOne({ name: bill.userName });
+      residentEmail = nameUser?.email;
     }
 
     if (!residentEmail) {
-      console.error(`❌ [DEBUG] NO EMAIL FOUND for resident: ${bill.userName}`);
+      console.error(`❌ Still undefined for resident: ${bill.userName}`);
       return res.status(404).json({ message: "Resident email is required or invalid" });
     }
 
-    console.log(`📩 [DEBUG] FOUND EMAIL: ${residentEmail}. Triggering Brevo...`);
+    console.log(`📩 FOUND EMAIL: ${residentEmail}. Sending via Brevo domain...`);
 
     const success = await sendReminderEmail(residentEmail, bill);
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
