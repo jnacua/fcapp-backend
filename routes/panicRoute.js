@@ -9,7 +9,7 @@ router.get('/my-alerts', auth.protect, async (req, res) => {
     try {
         let query = {};
 
-        // ✅ FIX: If the user is NOT an admin, only show their own alerts.
+        // If the user is NOT an admin, only show their own alerts.
         // If they ARE an admin, the query stays empty {}, fetching ALL records.
         if (req.user.role !== 'ADMIN') {
             query = { userId: req.user.id };
@@ -26,7 +26,19 @@ router.get('/my-alerts', auth.protect, async (req, res) => {
     }
 });
 
-// ✅ 2. SEND PANIC ALERT (Resident)
+// ✅ 2. GET LATEST ACTIVE ALERT (For Security Dashboard Fallback)
+router.get('/latest', async (req, res) => {
+    try {
+        // Finds the most recent unresolved alert
+        const latestPanic = await PanicAlert.findOne({ status: 'Pending' }).sort({ createdAt: -1 });
+        res.status(200).json(latestPanic || null);
+    } catch (error) {
+        console.error("Latest Panic Error:", error);
+        res.status(500).json({ error: "Failed to fetch latest alert" });
+    }
+});
+
+// ✅ 3. SEND PANIC ALERT (Resident)
 router.post('/send', auth.protect, async (req, res) => {
     try {
         const { latitude, longitude, residentName, houseNo } = req.body;
@@ -43,6 +55,7 @@ router.post('/send', auth.protect, async (req, res) => {
 
         const io = req.app.get('socketio');
         if (io) {
+            // 1. THIS EMIT KEEPS YOUR ADMIN SIDE WORKING
             io.emit('new-panic-alert', {
                 _id: newAlert._id,
                 userName: residentName,
@@ -51,10 +64,19 @@ router.post('/send', auth.protect, async (req, res) => {
                 longitude: longitude,
                 status: 'Pending'
             });
+
+            // 2. ✅ THIS EMIT TRIGGERS THE SECURITY GUARD POP-UP
+            io.emit('emergency-alert', {
+                name: residentName,
+                blockLot: houseNo,
+                status: 'ACTIVE'
+            });
+
+            console.log("🚨 Emergency Alert Broadcasted to Admin and Security!");
         }
 
         res.status(201).json({ 
-            message: "Alert sent successfully and broadcasted to Admin", 
+            message: "Alert sent successfully and broadcasted to Admin & Security", 
             alert: newAlert 
         });
         
@@ -64,7 +86,7 @@ router.post('/send', auth.protect, async (req, res) => {
     }
 });
 
-// ✅ 3. RESOLVE PANIC ALERT (Admin)
+// ✅ 4. RESOLVE PANIC ALERT (Admin)
 router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN'), async (req, res) => {
     try {
         const updatedAlert = await PanicAlert.findByIdAndUpdate(
@@ -72,6 +94,13 @@ router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN'), async (req,
             { status: 'Resolved' }, 
             { new: true }
         );
+
+        const io = req.app.get('socketio');
+        if (io) {
+            // ✅ Tells the Security Dashboard to close the red pop-up
+            io.emit('panic-resolved', { _id: req.params.id }); 
+        }
+
         res.status(200).json(updatedAlert);
     } catch (err) {
         res.status(500).json({ error: err.message });
