@@ -6,7 +6,7 @@ const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 2525, 
+  port: 587, // ✅ Switched to 587 for better Gmail deliverability
   secure: false,
   auth: {
     user: process.env.EMAIL_USER, 
@@ -20,7 +20,7 @@ const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
     from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`, 
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Helps prevent Gmail spam blocking
+    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Helps Gmail verify the sender
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
@@ -59,7 +59,7 @@ const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
     from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`,
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com',
+    replyTo: 'jeianpaolonacua07@gmail.com', // 🛡️ Crucial for avoiding "Silent Dropping"
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #f5c6cb; padding: 20px; max-width: 600px; border-radius: 10px; background-color: #fff3f3;">
@@ -215,13 +215,12 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED Manual Reminder with Deep Search Fallback
+// ✅ UPDATED Manual Reminder with Manual User Search Fallback
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
     console.log(`🔍 [DEBUG] Starting reminder for ID: ${billId}`);
     
-    // 1. Find bill and attempt to populate user
     const bill = await Payment.findById(billId).populate('userId');
 
     if (!bill) {
@@ -233,7 +232,7 @@ exports.sendManualReminder = async (req, res) => {
 
     let residentEmail = bill.userId?.email;
 
-    // 🛡️ FALLBACK: If population failed (common with corrupted IDs), search User collection by name
+    // 🛡️ FALLBACK: If population failed, manually search User collection by name
     if (!residentEmail) {
       console.log(`⚠️ [DEBUG] Population failed for resident ${bill.userName}. Searching manually...`);
       const User = require('../models/userModel'); 
