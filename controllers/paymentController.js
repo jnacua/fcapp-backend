@@ -8,15 +8,15 @@ const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'nacuapaolo@gmail.com', // ✅ Updated to your new email
-    pass: process.env.EMAIL_PASS  // ⚠️ Must be the 16-letter App Password for nacuapaolo@gmail.com
+    user: 'nacuapaolo@gmail.com',
+    pass: process.env.EMAIL_PASS 
   }
 });
 
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`, // ✅ Updated
+    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`,
     to: userEmail,
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
@@ -54,7 +54,7 @@ const sendReceiptEmail = async (userEmail, billData) => {
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`, // ✅ Updated
+    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`,
     to: userEmail,
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
@@ -96,12 +96,8 @@ exports.getAll = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    console.log("📥 [DEBUG] Incoming Bill Data:", JSON.stringify(req.body, null, 2));
     const { userId, userName, amount, type, month, prevReading, currReading, ratePerCubic, dueDate } = req.body;
-    
-    if (!userId || userId === "null") {
-      return res.status(400).json({ message: "User ID is required" });
-    }
+    if (!userId || userId === "null") return res.status(400).json({ message: "User ID is required" });
 
     let finalAmount = amount || 0;
     if (type.toLowerCase().includes('water')) {
@@ -123,7 +119,6 @@ exports.create = async (req, res) => {
     });
 
     await newPayment.save();
-    console.log(`✅ [DEBUG] Bill saved for ${userName}`);
     res.status(201).json(newPayment);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -143,29 +138,32 @@ exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, transactionNo } = req.body;
-
-    const payment = await Payment.findByIdAndUpdate(
-      id,
-      { status: status?.toUpperCase() || 'UNPAID', transactionNo },
-      { new: true }
-    ).populate('userId');
-
+    const payment = await Payment.findByIdAndUpdate(id, { status: status?.toUpperCase() || 'UNPAID', transactionNo }, { new: true }).populate('userId');
     if (!payment) return res.status(404).json({ message: "Record not found" });
-
-    if (payment.status === 'PAID' && payment.userId?.email) {
-      await sendReceiptEmail(payment.userId.email, payment);
-    }
-
+    if (payment.status === 'PAID' && payment.userId?.email) await sendReceiptEmail(payment.userId.email, payment);
     res.status(200).json(payment);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
+// ✅ UPDATED: SOFT DELETE (ARCHIVE)
 exports.deleteBill = async (req, res) => {
   try {
-    await Payment.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: "Bill deleted" });
+    // Instead of deleting, we flag it. 
+    // Make sure your Mongoose Schema has isArchived: { type: Boolean, default: false }
+    await Payment.findByIdAndUpdate(req.params.id, { isArchived: true });
+    res.status(200).json({ message: "Bill moved to archive" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Logic for restoring archived bills
+exports.restoreBill = async (req, res) => {
+  try {
+    await Payment.findByIdAndUpdate(req.params.id, { isArchived: false });
+    res.status(200).json({ message: "Bill restored from archive" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -175,38 +173,20 @@ exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
     const eventType = data?.attributes?.type;
-
     if (eventType === 'checkout_session.payment.paid') {
       const checkoutSessionId = req.body.data.attributes.data.id;
-      
-      const response = await axios.get(
-        `https://api.paymongo.com/v1/checkout_sessions/${checkoutSessionId}`,
-        {
-          headers: {
-            accept: 'application/json',
-            authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}`
-          }
-        }
-      );
-
+      const response = await axios.get(`https://api.paymongo.com/v1/checkout_sessions/${checkoutSessionId}`, {
+          headers: { accept: 'application/json', authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}` }
+      });
       const sessionData = response.data.data.attributes;
       const billId = sessionData.reference_number || sessionData.metadata?.billId;
-
       if (billId) {
-        const updated = await Payment.findByIdAndUpdate(
-          billId,
-          { status: 'PAID', transactionNo: checkoutSessionId, paidAt: new Date() },
-          { new: true }
-        ).populate('userId'); 
-
-        if (updated && updated.userId?.email) {
-          await sendReceiptEmail(updated.userId.email, updated);
-        }
+        const updated = await Payment.findByIdAndUpdate(billId, { status: 'PAID', transactionNo: checkoutSessionId, paidAt: new Date() }, { new: true }).populate('userId'); 
+        if (updated && updated.userId?.email) await sendReceiptEmail(updated.userId.email, updated);
       }
     }
     res.status(200).send('OK');
   } catch (err) {
-    console.error("🔥 WEBHOOK ERROR:", err.message);
     res.status(500).send('Error');
   }
 };
@@ -214,62 +194,23 @@ exports.paymongoWebhook = async (req, res) => {
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
-    console.log(`\n=== 🚀 [DEBUG] REMINDER TRIGGERED FOR BILL: ${billId} ===`);
-    
     const bill = await Payment.findById(billId);
-    if (!bill) {
-      console.log("❌ ERROR: Bill not found in database.");
-      return res.status(404).json({ message: "Payment record not found." });
-    }
-
-    console.log(`✅ FOUND BILL FOR: ${bill.userName}`);
-
+    if (!bill) return res.status(404).json({ message: "Payment record not found." });
     let residentEmail = null;
-
-    console.log(`🔍 1. Searching User collection for EXACT name: "${bill.userName}"`);
     try {
       const nameUser = await User.findOne({ name: new RegExp('^' + bill.userName + '$', 'i') });
-      if (nameUser && nameUser.email) {
-        residentEmail = nameUser.email;
-        console.log(`✅ SUCCESS: Found email via Name: ${residentEmail}`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Name search error: ${e.message}`);
-    }
-
+      if (nameUser && nameUser.email) residentEmail = nameUser.email;
+    } catch (e) {}
     if (!residentEmail && bill.userId) {
-      console.log(`🔍 2. Name search failed. Attempting search by ID string: "${bill.userId}"`);
       try {
         const directUser = await User.findById(bill.userId);
-        if (directUser && directUser.email) {
-          residentEmail = directUser.email;
-          console.log(`✅ SUCCESS: Found email via ID: ${residentEmail}`);
-        }
-      } catch (error) {
-        console.log(`⚠️ ID search skipped.`);
-      }
+        if (directUser && directUser.email) residentEmail = directUser.email;
+      } catch (error) {}
     }
-
-    if (!residentEmail) {
-      console.log(`❌ FATAL ERROR: Exhausted all searches. Could not find email for ${bill.userName}`);
-      console.log(`========================================================\n`);
-      return res.status(404).json({ message: "Resident email is required or invalid" });
-    }
-
-    console.log(`📨 PREPARING TO SEND VIA GMAIL TO: ${residentEmail}`);
-
+    if (!residentEmail) return res.status(404).json({ message: "Resident email is required or invalid" });
     const success = await sendReminderEmail(residentEmail, bill);
-    
-    if (success) {
-      console.log(`✅ EMAIL ACCEPTED BY GMAIL!`);
-    } else {
-      console.log(`🔥 GMAIL REJECTED THE EMAIL.`);
-    }
-    console.log(`========================================================\n`);
-
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
   } catch (err) {
-    console.error("❌ CRITICAL SERVER CRASH:", err.message);
     res.status(500).json({ error: err.message });
   }
 };
@@ -277,34 +218,14 @@ exports.sendManualReminder = async (req, res) => {
 exports.createPayMongoLink = async (req, res) => {
   try {
     const { billId, amount, type } = req.body;
-    const response = await axios.post(
-      'https://api.paymongo.com/v1/checkout_sessions',
-      {
-        data: {
-          attributes: {
-            send_email_receipt: true,
-            show_description: true,
-            reference_number: billId.toString(),
-            metadata: { billId: billId.toString() },
-            line_items: [{
-              currency: 'PHP',
-              amount: Math.round(Number(amount) * 100),
-              name: type,
-              quantity: 1
-            }],
+    const response = await axios.post('https://api.paymongo.com/v1/checkout_sessions', {
+        data: { attributes: { send_email_receipt: true, show_description: true, reference_number: billId.toString(), metadata: { billId: billId.toString() },
+            line_items: [{ currency: 'PHP', amount: Math.round(Number(amount) * 100), name: type, quantity: 1 }],
             payment_method_types: ['gcash', 'paymaya', 'card'],
             success_url: 'https://fcapp-backend.onrender.com/api/payments/success', 
-          }
-        }
-      },
-      {
-        headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json',
-          authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}`
-        }
-      }
-    );
+          } }
+      }, { headers: { accept: 'application/json', 'Content-Type': 'application/json', authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}` }
+    });
     res.status(200).json({ checkoutUrl: response.data.data.attributes.checkout_url });
   } catch (err) {
     res.status(500).json({ message: "Error creating link" });
@@ -312,8 +233,5 @@ exports.createPayMongoLink = async (req, res) => {
 };
 
 exports.paymentSuccess = (req, res) => {
-    res.send(`<div style="text-align:center; padding:50px; font-family:sans-serif;">
-        <h2 style="color:#176F63;">Payment Successful!</h2>
-        <p>Check your email for the official receipt.</p>
-    </div>`);
+    res.send(`<div style="text-align:center; padding:50px; font-family:sans-serif;"><h2 style="color:#176F63;">Payment Successful!</h2><p>Check your email for the official receipt.</p></div>`);
 };
