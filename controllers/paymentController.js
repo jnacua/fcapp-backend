@@ -210,18 +210,31 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
+// ✅ UPDATED Manual Reminder with "Undefined Email" Fix
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
+    // Attempt to find bill and populate user data
     const bill = await Payment.findById(billId).populate('userId');
 
-    if (!bill || !bill.userId?.email) {
-      return res.status(404).json({ message: "Resident email not found." });
+    if (!bill) {
+      return res.status(404).json({ message: "Payment record not found." });
     }
 
-    const success = await sendReminderEmail(bill.userId.email, bill);
+    // Extraction with safety check
+    const residentEmail = bill.userId?.email;
+
+    if (!residentEmail) {
+      console.error(`❌ Email missing for Bill ID: ${billId}. Population might have failed.`);
+      return res.status(404).json({ message: "Resident email not found in record." });
+    }
+
+    console.log(`📩 Preparing reminder for: ${residentEmail}`);
+
+    const success = await sendReminderEmail(residentEmail, bill);
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
   } catch (err) {
+    console.error("❌ sendManualReminder Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 };
