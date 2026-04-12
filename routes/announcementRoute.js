@@ -24,6 +24,7 @@ const storage = new CloudinaryStorage({
     },
 });
 
+// ✅ Consistent Key: Using 'image' to match Flutter FilePicker/ApiService
 const upload = multer({ 
     storage: storage,
     limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
@@ -32,7 +33,7 @@ const upload = multer({
 // ==========================================
 // 1. ADMIN ONLY: Post a new announcement
 // ==========================================
-router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req, res) => {
+router.post('/', protect, restrictTo('ADMIN'), upload.single('image'), async (req, res) => {
     try {
         const { title, content, type, date, status } = req.body;
 
@@ -43,7 +44,8 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
-            file: req.file ? req.file.path : null, 
+            // ✅ Map the Cloudinary path to 'image' field (or 'file' if your model uses that)
+            image: req.file ? req.file.path : null, 
         };
 
         const announcement = await Announcement.create(announcementData);
@@ -59,12 +61,9 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('file'), async (req
 
 // ==========================================
 // 2. PUBLIC/RESIDENT: Get all announcements
-// ✅ FIXED: Removed { status: { $ne: 'ARCHIVED' } }
 // ==========================================
 router.get('/', protect, async (req, res) => {
     try {
-        // We now fetch ALL records. 
-        // Flutter will use its local filters to show/hide Archived items.
         const announcements = await Announcement.find()
             .sort({ isPinned: -1, date: -1 });
         
@@ -77,12 +76,12 @@ router.get('/', protect, async (req, res) => {
 // ==========================================
 // 3. ADMIN ONLY: Update an existing announcement
 // ==========================================
-router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async (req, res) => {
+router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('image'), async (req, res) => {
     try {
         let updateData = { ...req.body };
 
         if (req.file) {
-            updateData.file = req.file.path;
+            updateData.image = req.file.path; // ✅ Update the URL if a new file is sent
         }
 
         const updatedAnnouncement = await Announcement.findByIdAndUpdate(
@@ -104,7 +103,6 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('file'), async 
 
 // ==========================================
 // 4. ADMIN ONLY: Quick Status Toggle (Pin/Archive)
-// ✅ FIXED: Using .post to bypass CORS PATCH block on Web
 // ==========================================
 router.post('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
@@ -120,7 +118,6 @@ router.post('/status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
             return res.status(404).json({ message: 'Announcement not found' });
         }
 
-        console.log(`✅ Status/Pin Updated for ${req.params.id}`);
         res.status(200).json(announcement);
     } catch (err) {
         console.error("❌ STATUS UPDATE ERROR:", err);
