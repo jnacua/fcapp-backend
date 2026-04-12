@@ -4,8 +4,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path'); 
 const nodemailer = require('nodemailer');
-const http = require('http'); // ✅ Added
-const { Server } = require('socket.io'); // ✅ Added
+const http = require('http');
+const { Server } = require('socket.io');
 
 // Route Imports
 const authRoutes = require('./routes/authRoute');
@@ -21,17 +21,19 @@ const paymongoRoutes = require('./routes/paymongoRoutes');
 const dashboardRoutes = require('./routes/dashboardRoute');
 
 const app = express();
-const server = http.createServer(app); // ✅ Create HTTP server
+const server = http.createServer(app);
 
 // --- 1. SOCKET.IO SETUP ---
+// ✅ UPDATED: Added explicit transports and credentials for better connectivity
 const io = new Server(server, {
     cors: {
-        origin: '*', // Allows your Flutter Web and Mobile to connect
-        methods: ['GET', 'POST']
-    }
+        origin: '*', 
+        methods: ['GET', 'POST'],
+        credentials: true
+    },
+    transports: ['websocket', 'polling'] 
 });
 
-// Make 'io' accessible globally via req.app.get('socketio')
 app.set('socketio', io);
 
 io.on('connection', (socket) => {
@@ -90,7 +92,6 @@ app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
-// ✅ Use server.listen instead of app.listen
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server + Real-time Socket running on http://localhost:${PORT}`);
+    console.log(`🚀 Server + Real-time Socket running on port ${PORT}`);
 });
