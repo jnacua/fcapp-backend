@@ -2,45 +2,46 @@ const Payment = require('../models/paymentModel');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 
-// ================= EMAIL CONFIGURATION =================
+// ================= EMAIL CONFIGURATION (BREVO) =================
 
-// ✅ Setup the Gmail Transporter
+// ✅ Setup the Brevo Transporter (Bypassing Render Blocks)
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp-relay.brevo.com',
+  port: 2525, // Port 2525 is more stable on Render
+  secure: false,
   auth: {
-    user: process.env.EMAIL_USER, // Your Gmail
-    pass: process.env.EMAIL_PASS  // Your Gmail App Password
-  }
+    user: process.env.EMAIL_USER, // Your Brevo Login (a7dd86001...)
+    pass: process.env.EMAIL_PASS  // Your LONG Brevo SMTP Key
+  },
+  tls: { rejectUnauthorized: false }
 });
 
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <${process.env.EMAIL_USER}>`,
+    // ✅ CRITICAL: Must be your verified sender
+    from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`, 
     to: userEmail,
-    subject: `Payment Receipt - ${billData.month} ${new Date().getFullYear()}`,
+    subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
         <div style="background-color: #176F63; color: white; padding: 10px; text-align: center; border-radius: 5px 5px 0 0;">
-          <h2 style="margin:0;">PAYMENT SUCCESSFUL</h2>
+          <h2 style="margin:0;">OFFICIAL RECEIPT</h2>
         </div>
         <div style="padding: 20px;">
           <p>Hi <b>${billData.userName}</b>,</p>
-          <p>Thank you for your payment. Here are your transaction details:</p>
+          <p>Your payment was successful. Below are your transaction details:</p>
           <hr style="border: 0; border-top: 1px solid #eee;">
           <table style="width: 100%; border-collapse: collapse;">
             <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Bill Type:</b></td><td>${billData.type}</td></tr>
             <tr><td style="padding: 8px;"><b>Month:</b></td><td>${billData.month}</td></tr>
-            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Amount Paid:</b></td><td>₱ ${billData.amount.toFixed(2)}</td></tr>
+            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Amount Paid:</b></td><td>₱ ${Number(billData.amount).toFixed(2)}</td></tr>
             <tr><td style="padding: 8px;"><b>Status:</b></td><td style="color: #176F63;"><b>PAID</b></td></tr>
-            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Transaction No:</b></td><td>${billData.transactionNo || 'N/A'}</td></tr>
+            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Transaction ID:</b></td><td style="font-size:11px;">${billData.transactionNo || 'N/A'}</td></tr>
             <tr><td style="padding: 8px;"><b>Date Paid:</b></td><td>${new Date().toLocaleDateString()}</td></tr>
           </table>
           <hr style="border: 0; border-top: 1px solid #eee;">
-          <p style="font-size: 12px; color: #666; text-align: center;">
-            Fiesta Casitas Subdivision Office<br>
-            Binangonan, Rizal, 1940
-          </p>
+          <p style="font-size: 11px; color: #666; text-align: center;">Fiesta Casitas Subdivision Office</p>
         </div>
       </div>
     `
@@ -48,16 +49,16 @@ const sendReceiptEmail = async (userEmail, billData) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`📧 Receipt successfully sent to: ${userEmail}`);
+    console.log(`📧 Official Receipt sent to: ${userEmail}`);
   } catch (error) {
-    console.error("📧 Email sending failed:", error);
+    console.error("📧 Email sending failed:", error.message);
   }
 };
 
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
-    from: `"FCAPP Utilities" <${process.env.EMAIL_USER}>`,
+    from: `"FCAPP Utilities" <jeianpaolonacua07@gmail.com>`,
     to: userEmail,
     subject: `Urgent: Unpaid ${billData.type} - ${billData.month}`,
     html: `
@@ -67,15 +68,10 @@ const sendReminderEmail = async (userEmail, billData) => {
         </div>
         <div style="padding: 20px;">
           <p>Hi <b>${billData.userName}</b>,</p>
-          <p>This is a friendly reminder that you have an outstanding balance for your <b>${billData.type}</b> for the month of <b>${billData.month}</b>.</p>
+          <p>You have an outstanding balance for <b>${billData.type}</b> for the month of <b>${billData.month}</b>.</p>
           <hr style="border: 0; border-top: 1px solid #f5c6cb;">
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr><td style="padding: 8px;"><b>Amount Due:</b></td><td style="color: #721c24; font-weight: bold; font-size: 18px;">₱ ${billData.amount.toFixed(2)}</td></tr>
-            <tr><td style="padding: 8px;"><b>Status:</b></td><td style="color: #721c24;"><b>UNPAID</b></td></tr>
-          </table>
-          <hr style="border: 0; border-top: 1px solid #f5c6cb;">
-          <p>Please settle this amount through the <b>FCAPP Mobile App</b> using GCash, Maya, or Card to avoid any service interruption.</p>
-          <p style="font-size: 12px; color: #666; text-align: center;">Fiesta Casitas Subdivision Office</p>
+          <p><b>Amount Due: ₱ ${Number(billData.amount).toFixed(2)}</b></p>
+          <p>Please settle this using the FCAPP Mobile App.</p>
         </div>
       </div>
     `
@@ -83,17 +79,16 @@ const sendReminderEmail = async (userEmail, billData) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`📧 Reminder successfully sent to: ${userEmail}`);
+    console.log(`📧 Reminder sent to: ${userEmail}`);
     return true;
   } catch (error) {
-    console.error("📧 Reminder email failed:", error);
+    console.error("📧 Reminder failed:", error.message);
     return false;
   }
 };
 
 // ================= CONTROLLERS =================
 
-// ✅ 1. Get ALL payments (Admin view)
 exports.getAll = async (req, res) => {
   try {
     const payments = await Payment.find().sort({ createdAt: -1 });
@@ -103,26 +98,20 @@ exports.getAll = async (req, res) => {
   }
 };
 
-// ✅ 2. Create a Bill (Admin)
 exports.create = async (req, res) => {
   try {
-    const { 
-      userId, userName, amount, type, month, 
-      prevReading, currReading, ratePerCubic, dueDate 
-    } = req.body;
-
+    const { userId, userName, amount, type, month, prevReading, currReading, ratePerCubic, dueDate } = req.body;
     if (!userId) return res.status(400).json({ message: "User ID is required" });
 
     let finalAmount = amount || 0;
-    if (type === 'Water' || type === 'Water Bill') {
+    if (type.toLowerCase().includes('water')) {
        const consumption = (Number(currReading) || 0) - (Number(prevReading) || 0);
-       const rate = Number(ratePerCubic) || 25;
-       finalAmount = consumption * rate;
+       finalAmount = consumption * (Number(ratePerCubic) || 25);
     }
 
     const newPayment = new Payment({
       userId,
-      userName: userName || "Resident", 
+      userName: userName || "Resident",
       type: type || "Monthly Dues",      
       amount: finalAmount,
       month: month || new Date().toLocaleString('default', { month: 'long' }), 
@@ -140,17 +129,15 @@ exports.create = async (req, res) => {
   }
 };
 
-// ✅ 3. Get payments for a specific Resident
 exports.getMyBills = async (req, res) => {
   try {
     const bills = await Payment.find({ userId: req.user.id }).sort({ createdAt: -1 });
     res.status(200).json(bills);
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching bills', error: err.message });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ 4. Update payment status (Manual Admin Update + Email Trigger)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -158,26 +145,22 @@ exports.updateStatus = async (req, res) => {
 
     const payment = await Payment.findByIdAndUpdate(
       id,
-      { 
-        status: status ? status.toUpperCase() : 'UNPAID', 
-        transactionNo: transactionNo 
-      },
+      { status: status?.toUpperCase() || 'UNPAID', transactionNo },
       { new: true }
     ).populate('userId');
 
-    if (!payment) return res.status(404).json({ message: "Payment record not found" });
+    if (!payment) return res.status(404).json({ message: "Record not found" });
 
-    if (payment.status === 'PAID' && payment.userId && payment.userId.email) {
+    if (payment.status === 'PAID' && payment.userId?.email) {
       await sendReceiptEmail(payment.userId.email, payment);
     }
 
     res.status(200).json(payment);
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ 5. Delete a bill
 exports.deleteBill = async (req, res) => {
   try {
     await Payment.findByIdAndDelete(req.params.id);
@@ -187,19 +170,14 @@ exports.deleteBill = async (req, res) => {
   }
 };
 
-// ✅ 6. PayMongo Webhook
 exports.paymongoWebhook = async (req, res) => {
   try {
     const data = req.body.data;
     const eventType = data?.attributes?.type;
 
     if (eventType === 'checkout_session.payment.paid') {
-      const bodyString = JSON.stringify(req.body);
-      const csMatch = bodyString.match(/cs_[a-zA-Z0-9]+/);
-      const checkoutSessionId = csMatch ? csMatch[0] : null;
+      const checkoutSessionId = req.body.data.attributes.data.id;
       
-      if (!checkoutSessionId) return res.status(200).send('OK');
-
       const response = await axios.get(
         `https://api.paymongo.com/v1/checkout_sessions/${checkoutSessionId}`,
         {
@@ -213,67 +191,52 @@ exports.paymongoWebhook = async (req, res) => {
       const sessionData = response.data.data.attributes;
       const billId = sessionData.reference_number || sessionData.metadata?.billId;
 
-      if (billId && billId !== "null" && billId !== "undefined") {
+      if (billId) {
         const updated = await Payment.findByIdAndUpdate(
           billId,
           { status: 'PAID', transactionNo: checkoutSessionId, paidAt: new Date() },
           { new: true }
         ).populate('userId'); 
 
-        if (updated && updated.userId && updated.userId.email) {
+        if (updated && updated.userId?.email) {
           await sendReceiptEmail(updated.userId.email, updated);
         }
       }
     }
     res.status(200).send('OK');
   } catch (err) {
-    console.error("🔥 WEBHOOK ERROR:", err.response?.data || err.message);
-    res.status(500).send('Internal Server Error');
+    console.error("🔥 WEBHOOK ERROR:", err.message);
+    res.status(500).send('Error');
   }
 };
 
-// ✅ 7. Manual Email Reminder Trigger (Triggered by Flutter "REMIND" button)
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
     const bill = await Payment.findById(billId).populate('userId');
 
-    if (!bill || !bill.userId || !bill.userId.email) {
+    if (!bill || !bill.userId?.email) {
       return res.status(404).json({ message: "Resident email not found." });
     }
 
     const success = await sendReminderEmail(bill.userId.email, bill);
-    
-    if (success) {
-      res.status(200).json({ message: "Reminder successfully sent." });
-    } else {
-      res.status(500).json({ message: "System failed to send email." });
-    }
+    res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ 8. Create PayMongo Link
 exports.createPayMongoLink = async (req, res) => {
   try {
     const { billId, amount, type } = req.body;
-    const options = {
-      method: 'POST',
-      url: 'https://api.paymongo.com/v1/checkout_sessions',
-      headers: {
-        accept: 'application/json',
-        'Content-Type': 'application/json',
-        authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}`
-      },
-      data: {
+    const response = await axios.post(
+      'https://api.paymongo.com/v1/checkout_sessions',
+      {
         data: {
           attributes: {
-            send_email_receipt: true, 
+            send_email_receipt: true,
             show_description: true,
-            show_line_items: true,
-            description: `BILL_ID_${billId}`, 
-            reference_number: billId.toString(), 
+            reference_number: billId.toString(),
             metadata: { billId: billId.toString() },
             line_items: [{
               currency: 'PHP',
@@ -285,25 +248,24 @@ exports.createPayMongoLink = async (req, res) => {
             success_url: 'https://fcapp-backend.onrender.com/api/payments/success', 
           }
         }
+      },
+      {
+        headers: {
+          accept: 'application/json',
+          'Content-Type': 'application/json',
+          authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString('base64')}`
+        }
       }
-    };
-
-    const response = await axios.request(options);
+    );
     res.status(200).json({ checkoutUrl: response.data.data.attributes.checkout_url });
   } catch (err) {
-    res.status(500).json({ message: "Error" });
+    res.status(500).json({ message: "Error creating link" });
   }
 };
 
-// ✅ 9. Payment Success Page
 exports.paymentSuccess = (req, res) => {
-    res.send(`
-        <div style="text-align:center; padding:50px; font-family:sans-serif; background-color:#F8FAFB; min-height:100vh;">
-            <div style="background:white; display:inline-block; padding:40px; border-radius:20px; box-shadow: 0 10px 20px rgba(0,0,0,0.05);">
-                <div style="color:#176F63; font-size: 60px; margin-bottom: 10px;">✔</div>
-                <h2 style="color:#176F63; margin-top:0; font-weight:900;">Payment Successful!</h2>
-                <p style="color:#666; line-height:1.6;">Your transaction has been processed. <br> You will receive an official receipt in your Gmail shortly.</p>
-            </div>
-        </div>
-    `);
+    res.send(`<div style="text-align:center; padding:50px; font-family:sans-serif;">
+        <h2 style="color:#176F63;">Payment Successful!</h2>
+        <p>Check your email for the official receipt.</p>
+    </div>`);
 };
