@@ -206,3 +206,34 @@ exports.getMe = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+// ================= UPDATE PROFILE PICTURE (CLOUDINARY) =================
+exports.updateProfilePicture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided" });
+    }
+
+    // Cloudinary automatically provides the permanent URL in req.file.path
+    const imageUrl = req.file.path;
+
+    // Find user and update their profileImage field in MongoDB
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { profileImage: imageUrl },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      message: "Profile picture updated successfully",
+      profileImageUrl: imageUrl
+    });
+  } catch (error) {
+    console.error("Cloudinary Upload Error:", error);
+    res.status(500).json({ error: "Server error during image upload" });
+  }
+};

@@ -9,7 +9,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
-const authController = require('../controllers/authController'); 
+const authController = require('../controllers/authController'); // ✅ Import controller for profile picture logic
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -20,7 +20,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Storage for Registration Proofs
+// Storage Engine for Registration Proofs (ID/Bills)
 const residencyStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -30,13 +30,15 @@ const residencyStorage = new CloudinaryStorage({
     },
 });
 
-// ✅ Storage for Profile Pictures
+// ✅ Storage Engine for User Profile Pictures (Circular Avatars)
 const profilePicStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'profile_pictures', 
         allowed_formats: ['jpg', 'png', 'jpeg'],
-        transformation: [{ width: 500, height: 500, crop: 'fill', gravity: 'face' }] 
+        transformation: [
+            { width: 500, height: 500, crop: 'fill', gravity: 'face' } // Automatically finds and centers the face
+        ] 
     },
 });
 
@@ -97,10 +99,12 @@ router.post('/login', async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
+        // Security check for Admin Portal access
         if (isAdminLogin && user.role.toUpperCase() !== 'ADMIN') {
             return res.status(403).json({ message: "Access Denied: Only Admins can enter here." });
         }
 
+        // Status checks for Residents/Officers
         if (user.role === 'resident' || user.role === 'officer') {
             const status = user.status.toLowerCase();
             if (status === 'pending') {
@@ -141,11 +145,17 @@ router.post('/login', async (req, res) => {
 });
 
 // --- 3. PROFILE PICTURE UPLOAD ---
-// ✅ Wired to Flutter Profile Screen
-router.post('/update-profile-picture', protect, uploadProfile.single('profileImage'), authController.updateProfilePicture);
+// ✅ This endpoint is hit by the Flutter ProfileScreen
+router.post(
+    '/update-profile-picture', 
+    protect, 
+    uploadProfile.single('profileImage'), 
+    authController.updateProfilePicture
+);
 
 // --- 4. ADMIN ROUTES ---
 
+// Fetch all pending applications
 router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ status: 'pending' });
@@ -155,6 +165,7 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
+// Fetch all residents and officers
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: { $in: ['resident', 'officer'] } })
@@ -165,6 +176,7 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
+// Update specific resident information
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { name, blockLot, role, mobileNumber, email, type } = req.body;
@@ -186,6 +198,7 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
     }
 });
 
+// Admin action: Approve/Reject/Archive status
 router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { status } = req.body; 
