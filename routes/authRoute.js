@@ -9,7 +9,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
-const authController = require('../controllers/authController'); // ✅ Ensure this is imported for the logic
+const authController = require('../controllers/authController'); 
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -30,7 +30,7 @@ const residencyStorage = new CloudinaryStorage({
     },
 });
 
-// ✅ NEW: Storage for Profile Pictures
+// ✅ Storage for Profile Pictures
 const profilePicStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -141,7 +141,7 @@ router.post('/login', async (req, res) => {
 });
 
 // --- 3. PROFILE PICTURE UPLOAD ---
-// ✅ ADDED: This matches the endpoint your Flutter Profile Screen is hitting
+// ✅ Wired to Flutter Profile Screen
 router.post('/update-profile-picture', protect, uploadProfile.single('profileImage'), authController.updateProfilePicture);
 
 // --- 4. ADMIN ROUTES ---
@@ -194,7 +194,7 @@ router.put('/update-status/:id', protect, restrictTo('ADMIN'), async (req, res) 
             { status: status.toLowerCase() }, 
             { new: true }
         );
-        return res.status(200).json({ message: `User ${status}`, user });
+        return res.status(200).json({ message: `User status updated to ${status}`, user });
     } catch (err) {
         return res.status(500).json({ message: "Error updating status" });
     }
