@@ -3,7 +3,19 @@ const router = express.Router();
 const PanicAlert = require('../models/panicModel');
 const auth = require('../middleware/authMiddleware');
 
-// --- 1. SEND PANIC ALERT (Resident) ---
+// ✅ 1. GET MY ALERTS (Resident History)
+// This MUST be above any route with /:id to prevent 404 errors
+router.get('/my-alerts', auth.protect, async (req, res) => {
+    try {
+        const alerts = await PanicAlert.find({ userId: req.user.id })
+            .sort({ createdAt: -1 });
+        res.status(200).json(alerts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ 2. SEND PANIC ALERT (Resident)
 router.post('/send', auth.protect, async (req, res) => {
     try {
         const { latitude, longitude, residentName, houseNo } = req.body;
@@ -41,18 +53,7 @@ router.post('/send', auth.protect, async (req, res) => {
     }
 });
 
-// --- 2. GET MY ALERTS (Resident History) ---
-router.get('/my-alerts', auth.protect, async (req, res) => {
-    try {
-        const alerts = await PanicAlert.find({ userId: req.user.id })
-            .sort({ createdAt: -1 });
-        res.status(200).json(alerts);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- 3. RESOLVE PANIC ALERT (Admin) ---
+// ✅ 3. RESOLVE PANIC ALERT (Admin)
 router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN'), async (req, res) => {
     try {
         const updatedAlert = await PanicAlert.findByIdAndUpdate(

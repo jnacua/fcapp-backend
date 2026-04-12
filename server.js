@@ -30,8 +30,8 @@ const io = new Server(server, {
         methods: ["GET", "POST"],
         credentials: true
     },
-    allowEIO3: true, // Critical fix for namespace/client compatibility
-    transports: ['websocket', 'polling'] 
+    allowEIO3: true,
+    transports: ['websocket', 'polling']
 });
 
 app.set('socketio', io);
@@ -50,19 +50,15 @@ app.use(cors({
     optionsSuccessStatus: 200 
 }));
 
-// --- 3. MIDDLEWARE ---
+// Middlewares and Routes exactly as you have them...
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
-
-// --- 4. STATIC UPLOADS FOLDER ---
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// Email Transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -78,7 +74,7 @@ app.use((req, res, next) => {
 
 app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
 
-// --- 5. API ROUTES ---
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
@@ -93,5 +89,5 @@ app.use('/api/dashboard', dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server + Real-time Socket running on http://localhost:${PORT}`);
+    console.log(`🚀 Server + Real-time Socket running on port ${PORT}`);
 });
