@@ -4,20 +4,38 @@ const User = require('../models/userModel');
 const Audit = require('../models/auditModel'); 
 const bcrypt = require('bcryptjs'); 
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// --- MULTER CONFIGURATION ---
-const storage = multer.diskStorage({
-    destination: './uploads/',
-    filename: (req, file, cb) => {
-        cb(null, 'proof-' + Date.now() + path.extname(file.originalname));
-    }
+// ==========================================
+// 0. CLOUDINARY & MULTER CONFIGURATION
+// ==========================================
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
-const upload = multer({ storage: storage });
+
+const residencyStorage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'residency_proofs', 
+        allowed_formats: ['jpg', 'png', 'jpeg'],
+        transformation: [{ width: 1000, crop: 'limit' }] 
+    },
+});
+
+// ✅ Matches Mobile App: Key 'proofImage'
+const upload = multer({ 
+    storage: residencyStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // --- 1. REGISTRATION ---
+// Standardized to use Cloudinary for residency proof
 router.post('/register', upload.single('proofImage'), async (req, res) => {
     try {
         const { email, password, mobileNumber, blockLot, name, status, type } = req.body;
@@ -39,7 +57,8 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
             role: 'resident', 
             status: status || 'pending',
             type: type || 'OWNER', 
-            proofOfResidencyPath: req.file ? req.file.path.replace(/\\/g, "/") : null 
+            // ✅ req.file.path is now the permanent Cloudinary HTTPS URL
+            proofOfResidencyPath: req.file ? req.file.path : null 
         });
 
         await newUser.save();
@@ -52,8 +71,10 @@ router.post('/register', upload.single('proofImage'), async (req, res) => {
             });
         }
 
+        console.log("✅ User Registered with Cloudinary proof:", newUser.proofOfResidencyPath);
         return res.status(200).json({ message: "Success", user: newUser });
     } catch (err) {
+        console.error("❌ Registration Error:", err.message);
         return res.status(500).json({ message: "Registration failed", error: err.message });
     }
 });
@@ -185,7 +206,6 @@ router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     }
 });
 
-// ✅ UPDATED: Fixed for Owner/Tenant sync issue
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const { name, blockLot, role, mobileNumber, email, type } = req.body;
@@ -195,7 +215,6 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
             blockLot,
             mobileNumber,
             email,
-            // Force Uppercase for 'type' to match Flutter Dropdown & force Lowercase for 'role'
             type: type ? type.toUpperCase() : undefined,
             role: role ? role.toLowerCase() : undefined
         };
