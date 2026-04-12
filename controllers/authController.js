@@ -17,46 +17,24 @@ const transporter = nodemailer.createTransport({
 // ✅ Reusable Function to send Approval/Rejection emails
 const sendStatusEmail = async (userEmail, userName, status) => {
   console.log(`\n--- 📧 EMAIL ATTEMPT START ---`);
-  console.log(`Recipient: ${userEmail}`);
-  console.log(`Status Input: ${status}`);
-
   const statusLower = status.toLowerCase();
   const isApproved = statusLower === 'active' || statusLower === 'approved';
   const isRejected = statusLower === 'rejected';
 
-  if (!isApproved && !isRejected) {
-    console.log(`⚠️ Email Skipped: Status "${statusLower}" is not a trigger status.`);
-    return;
-  }
+  if (!isApproved && !isRejected) return;
 
   const mailOptions = {
     from: `"FCAPP System" <nacuapaolo@gmail.com>`,
     to: userEmail,
     subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
-    html: `
-      <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; max-width: 600px; border-radius: 10px;">
-        <div style="background-color: ${isApproved ? '#176F63' : '#d9534f'}; color: white; padding: 10px; text-align: center; border-radius: 5px 5px 0 0;">
-          <h2 style="margin:0;">Account ${isApproved ? 'Approved' : 'Rejected'}</h2>
-        </div>
-        <div style="padding: 20px; border: 1px solid #eee; border-top: none;">
-          <p>Hello <b>${userName}</b>,</p>
-          <p>Your account registration for the <b>Fiesta Casitas Subdivision App</b> has been <b>${statusLower}</b> by the administrator.</p>
-          ${isApproved 
-            ? '<p>You can now log in using your registered credentials to access billing, announcements, and community features.</p>' 
-            : '<p>Unfortunately, your registration could not be verified at this time. If you believe this is an error, please visit the HOA office for assistance.</p>'}
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 11px; color: #888; text-align: center;">Fiesta Casitas HOA Management Team</p>
-        </div>
-      </div>
-    `
+    html: `<h3>Account ${isApproved ? 'Approved' : 'Rejected'}</h3><p>Hello ${userName}, your account is now ${statusLower}.</p>`
   };
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ SUCCESS: Status email sent! MessageID: ${info.messageId}`);
+    console.log(`✅ SUCCESS: Status email sent!`);
   } catch (error) {
     console.error(`❌ NODEMAILER ERROR: ${error.message}`);
-    console.log("⚠️ Continuing process without email...");
   }
 };
 
@@ -64,102 +42,87 @@ const sendStatusEmail = async (userEmail, userName, status) => {
 exports.register = async (req, res) => {
   try {
     const { email, password, role, name, mobileNumber, blockLot } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
+    if (!email || !password) return res.status(400).json({ message: 'Email and password are required' });
 
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'User already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({ 
-      email, 
-      password: hashedPassword, 
-      role: role || 'resident',
-      name, 
-      mobileNumber, 
-      blockLot, 
-      status: 'pending' 
+      email, password: hashedPassword, role: role || 'resident',
+      name, mobileNumber, blockLot, status: 'pending' 
     });
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({
-      message: 'User registered successfully',
-      user: { id: user._id, email: user.email, role: user.role, name: user.name },
-      token: token 
-    });
+    res.status(201).json({ message: 'Registered successfully', user, token });
   } catch (err) {
-    console.error("Registration Error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// ================= LOGIN CONTROLLER =================
+// ================= LOGIN CONTROLLER (WITH DIAGNOSTICS) =================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(`📡 Login request received for: ${email}`);
+    console.log(`--- 📡 LOGIN ATTEMPT START: ${email} ---`);
 
+    // STEP 1: DB LOOKUP
     const user = await User.findOne({ email });
     if (!user) {
-      console.log(`❌ Login Fail: User ${email} not found.`);
+      console.log(`❌ STEP 1 FAIL: User not found in database.`);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+    console.log(`✅ STEP 1 PASS: User found (${user.name})`);
 
+    // STEP 2: PASSWORD CHECK
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log(`❌ Login Fail: Wrong password for ${email}.`);
+      console.log(`❌ STEP 2 FAIL: Password mismatch.`);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+    console.log(`✅ STEP 2 PASS: Password matches`);
 
-    // ✅ THE KEY FIX: Convert whatever is in the DB to lowercase for comparison
+    // STEP 3: STATUS VERIFICATION
     const dbStatus = user.status ? user.status.toLowerCase() : 'pending';
-    console.log(`🔍 Checking Status for ${user.name}: Found "${dbStatus}"`);
+    console.log(`🔍 STEP 3 CHECK: Database status is "${dbStatus}"`);
 
-    // 1. If it's explicitly 'pending', block them.
     if (dbStatus === 'pending') {
+      console.log(`❌ STEP 3 FAIL: Account is pending.`);
       return res.status(403).json({ message: "Wait for admin approval" });
     }
 
-    // 2. Allow entry if status is 'active' OR 'approved' (handles your "APPROVED" case)
     if (dbStatus === 'active' || dbStatus === 'approved') {
-      const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-      console.log(`✅ LOGIN SUCCESS: Access granted to ${user.name}`);
+      console.log(`✅ STEP 3 PASS: Status accepted.`);
       
+      // STEP 4: JWT GENERATION
+      const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+      console.log(`✅ STEP 4 PASS: Token generated. Sending success response.`);
+
       return res.json({
         message: 'Login successful',
         token: token,
         user: { 
-          id: user._id, 
-          email: user.email, 
-          role: user.role,  
-          name: user.name,
-          status: user.status, // Sends the original "APPROVED" back to Flutter
-          blockLot: user.blockLot || 'N/A',
-          profileImage: user.profileImage || ''
+          id: user._id, email: user.email, role: user.role, name: user.name,
+          status: user.status, blockLot: user.blockLot || 'N/A', profileImage: user.profileImage || ''
         }
       });
     }
 
-    // 3. Fallback for any other status (rejected, archived, etc.)
-    console.log(`❌ Login Fail: Account status is "${dbStatus}"`);
-    return res.status(403).json({ message: "Account is restricted. Contact admin." });
+    console.log(`❌ STEP 3 FAIL: Status "${dbStatus}" not recognized.`);
+    return res.status(403).json({ message: "Account restricted." });
 
   } catch (err) {
-    console.error("❌ CRITICAL LOGIN ERROR:", err);
+    console.error("❌ CRITICAL LOGIN ERROR:", err.stack);
     res.status(500).json({ message: 'Server error during login' });
   }
 };
 
-// ================= ADMIN CONTROLLERS =================
+// ================= ADMIN & PROFILE CONTROLLERS =================
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
     res.status(200).json(users);
   } catch (err) {
-    console.error("GetAllUsers Error:", err);
     res.status(500).json({ message: 'Error fetching users' });
   }
 };
@@ -167,19 +130,11 @@ exports.getAllUsers = async (req, res) => {
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.params.id, 
-      { status: status }, // Keep capitalization for DB visibility if preferred
-      { new: true }
-    );
-    
+    const user = await User.findByIdAndUpdate(req.params.id, { status: status }, { new: true });
     if (!user) return res.status(404).json({ message: 'User not found' });
-
     sendStatusEmail(user.email, user.name, status);
-
-    res.status(200).json({ message: `User status updated to ${status}`, user });
+    res.status(200).json({ message: `Status updated to ${status}`, user });
   } catch (err) {
-    console.error("UpdateStatus Controller Error:", err);
     res.status(500).json({ message: 'Update failed' });
   }
 };
@@ -190,44 +145,19 @@ exports.getMe = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {
-    console.error("GetMe Error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// ================= UPDATE PROFILE PICTURE (CLOUDINARY) =================
 exports.updateProfilePicture = async (req, res) => {
   console.log("--- 📸 PROFILE UPLOAD START ---");
   try {
-    if (!req.file) {
-      console.log("❌ DEBUG: No file found in req.file. Check Multer config.");
-      return res.status(400).json({ error: "No image file provided" });
-    }
-
-    console.log("✅ DEBUG: File received from Multer:", req.file.path);
-    console.log("✅ DEBUG: Authenticated User ID:", req.user.id);
-
+    if (!req.file) return res.status(400).json({ error: "No image provided" });
     const imageUrl = req.file.path;
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id, 
-      { profileImage: imageUrl }, 
-      { new: true }
-    );
-
-    if (!updatedUser) {
-      console.log("❌ DEBUG: User not found in DB during update.");
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    console.log("✅ DEBUG: MongoDB updated for:", updatedUser.name);
-    console.log("--- 📸 PROFILE UPLOAD SUCCESS ---");
-
-    res.status(200).json({ 
-      message: "Success", 
-      profileImageUrl: imageUrl 
-    });
+    const updatedUser = await User.findByIdAndUpdate(req.user.id, { profileImage: imageUrl }, { new: true });
+    if (!updatedUser) return res.status(404).json({ message: 'User not found' });
+    res.status(200).json({ message: "Success", profileImageUrl: imageUrl });
   } catch (error) {
-    console.error("❌ DEBUG: Upload Error:", error.message);
-    res.status(500).json({ error: "Server error during image upload" });
+    res.status(500).json({ error: "Upload failed" });
   }
 };
