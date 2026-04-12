@@ -6,12 +6,18 @@ const nodemailer = require('nodemailer');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // ================= EMAIL CONFIGURATION (GMAIL) =================
+// ✅ FIXED: Updated to use Port 465 and SSL to prevent Render ETIMEDOUT errors
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // Use SSL/TLS
   auth: {
     user: 'nacuapaolo@gmail.com',
     pass: process.env.EMAIL_PASS 
-  }
+  },
+  connectionTimeout: 15000, // 15 seconds
+  greetingTimeout: 15000,
+  socketTimeout: 20000,
 });
 
 // ✅ Reusable Function to send Approval/Rejection emails
