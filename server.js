@@ -52,28 +52,28 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER (GMAIL SERVICE VERSION) ---
-// Note: We use the 'service' shortcut for Gmail as it handles port logic internally
+// --- 4. EMAIL TRANSPORTER (BREVO SMTP VERSION) ---
+// Note: We switched from Gmail to Brevo to bypass Render's network blocks.
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false, // Port 587 uses STARTTLS
   auth: {
-    user: process.env.EMAIL_USER, // Environment variable from Render
-    pass: process.env.EMAIL_PASS  // Environment variable from Render (App Password)
+    user: process.env.EMAIL_USER, // Your Brevo Login Email
+    pass: process.env.EMAIL_PASS  // Your Brevo SMTP Key
   },
-  logger: true, // ✅ Shows the SMTP conversation in Render logs
-  debug: true,  // ✅ Shows detailed error messages in Render logs
   tls: {
-    rejectUnauthorized: false // Bypasses some network certificate blocks
+    rejectUnauthorized: false // Ensures connection isn't dropped by certificate issues
   }
 });
 
 // ✅ CRITICAL: Verify Transporter on Startup
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ NODEMAILER ERROR: Connection failed.");
+    console.error("❌ BREVO ERROR: Connection failed. Check your SMTP Key in Render variables.");
     console.error("DEBUG INFO:", error.message);
   } else {
-    console.log("✅ EMAIL SERVER READY: Reminders will be sent successfully.");
+    console.log("✅ EMAIL SERVER READY: Brevo is verified and ready to send reminders.");
   }
 });
 
