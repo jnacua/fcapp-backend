@@ -52,25 +52,29 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER (BREVO SMTP VERSION) ---
-// Note: We switched from Gmail to Brevo to bypass Render's network blocks.
+// --- 4. EMAIL TRANSPORTER (BREVO BYPASS VERSION) ---
+// Using Port 2525 and high timeouts to prevent Render network drops
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false, // Port 587 uses STARTTLS
+  port: 2525, // ✅ Port 2525 is much more stable on Render than 587
+  secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // Your Brevo Login Email
-    pass: process.env.EMAIL_PASS  // Your Brevo SMTP Key
+    user: process.env.EMAIL_USER, // Your Brevo Login (e.g., a7dd86001@smtp-brevo.com)
+    pass: process.env.EMAIL_PASS  // Your LONG SMTP Key (xsmtpsib...)
   },
+  // Increased timeout limits for Render's network
+  connectionTimeout: 40000, 
+  greetingTimeout: 40000,
+  socketTimeout: 40000,
   tls: {
-    rejectUnauthorized: false // Ensures connection isn't dropped by certificate issues
+    rejectUnauthorized: false 
   }
 });
 
 // ✅ CRITICAL: Verify Transporter on Startup
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ BREVO ERROR: Connection failed. Check your SMTP Key in Render variables.");
+    console.error("❌ BREVO ERROR: Connection failed on Port 2525.");
     console.error("DEBUG INFO:", error.message);
   } else {
     console.log("✅ EMAIL SERVER READY: Brevo is verified and ready to send reminders.");
