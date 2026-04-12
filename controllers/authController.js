@@ -6,7 +6,6 @@ const nodemailer = require('nodemailer');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // ================= EMAIL CONFIGURATION (GMAIL) =================
-
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -53,13 +52,12 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   };
 
   try {
-    console.log(`Attempting to send via Nodemailer...`);
+    // ✅ Wrap in try-catch so an email error doesn't crash the server
     const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ SUCCESS: Status email sent! MessageID: ${info.messageId}`);
-    console.log(`--- 📧 EMAIL ATTEMPT END ---\n`);
+    console.log(`✅ SUCCESS: Email sent! MessageID: ${info.messageId}`);
   } catch (error) {
     console.error(`❌ NODEMAILER ERROR: ${error.message}`);
-    console.log(`--- 📧 EMAIL ATTEMPT FAILED ---\n`);
+    console.log("⚠️ Continuing process without email...");
   }
 };
 
@@ -72,9 +70,7 @@ exports.register = async (req, res) => {
     }
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
+    if (existingUser) return res.status(400).json({ message: 'User already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({ 
@@ -83,7 +79,7 @@ exports.register = async (req, res) => {
       role: role || 'resident',
       name, 
       mobileNumber, 
-      blockLot,
+      blockLot, 
       status: 'pending' 
     });
 
@@ -91,13 +87,7 @@ exports.register = async (req, res) => {
 
     res.status(201).json({
       message: 'User registered successfully',
-      user: { 
-        id: user._id, 
-        email: user.email, 
-        role: user.role,
-        name: user.name,
-        blockLot: user.blockLot 
-      },
+      user: { id: user._id, email: user.email, role: user.role, name: user.name },
       token: token 
     });
   } catch (err) {
@@ -110,39 +100,42 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log(`📡 Login request for: ${email}`);
+
     const user = await User.findOne({ email });
-    
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+
+    // ✅ CHECK STATUS: Ensure users can't enter if still pending
+    if (user.status === 'pending') {
+      return res.status(403).json({ message: "Wait for admin approval" });
     }
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
+    console.log(`✅ Login Success: ${user.name}`);
     res.json({
       message: 'Login successful',
       token: token,
       user: { 
         id: user._id, 
         email: user.email, 
-        role: user.role, 
+        role: user.role,  
         name: user.name,
         status: user.status,
-        blockLot: user.blockLot || user.blocklot || 'N/A',
+        blockLot: user.blockLot || 'N/A',
         profileImage: user.profileImage || ''
       }
     });
   } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("❌ LOGIN ERROR:", err);
+    res.status(500).json({ message: 'Server error during login' });
   }
 };
 
-// ================= GET ALL USERS (FOR ADMIN) =================
+// ================= ADMIN CONTROLLERS =================
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
@@ -153,27 +146,15 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// ================= UPDATE STATUS (FOR ADMIN) =================
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    console.log(`\n🚀 UPDATE STATUS TRIGGERED: UserID ${req.params.id} -> ${status}`);
+    const user = await User.findByIdAndUpdate(req.params.id, { status: status.toLowerCase() }, { new: true });
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id, 
-      { status: status.toLowerCase() }, 
-      { new: true }
-    );
-
-    if (!user) {
-        console.log(`❌ DB ERROR: User not found in database.`);
-        return res.status(404).json({ message: 'User not found' });
-    }
-
-    console.log(`✅ DB SUCCESS: User ${user.name} updated to ${user.status}`);
-
-    // Trigger email logic
-    await sendStatusEmail(user.email, user.name, status);
+    // ✅ Trigger email but don't 'await' it if you want the response to be instant
+    sendStatusEmail(user.email, user.name, status);
 
     res.status(200).json({ message: `User status updated to ${status}`, user });
   } catch (err) {
@@ -182,25 +163,11 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// ================= GET ME (PROFILE) CONTROLLER =================
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password'); 
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      blockLot: user.blockLot || user.blocklot || 'N/A',
-      profileImage: user.profileImage || '',
-      mobileNumber: user.mobileNumber
-    });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
   } catch (err) {
     console.error("GetMe Error:", err);
     res.status(500).json({ message: 'Server error' });
@@ -211,7 +178,6 @@ exports.getMe = async (req, res) => {
 exports.updateProfilePicture = async (req, res) => {
   console.log("--- 📸 PROFILE UPLOAD START ---");
   try {
-    // 1. Check if Multer actually caught the file
     if (!req.file) {
       console.log("❌ DEBUG: No file found in req.file. Check Multer config.");
       return res.status(400).json({ error: "No image file provided" });
@@ -221,11 +187,9 @@ exports.updateProfilePicture = async (req, res) => {
     console.log("✅ DEBUG: Authenticated User ID:", req.user.id);
 
     const imageUrl = req.file.path;
-
-    // 2. Attempt to update MongoDB
     const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      { profileImage: imageUrl },
+      req.user.id, 
+      { profileImage: imageUrl }, 
       { new: true }
     );
 
@@ -234,15 +198,15 @@ exports.updateProfilePicture = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log("✅ DEBUG: MongoDB updated for user:", updatedUser.name);
+    console.log("✅ DEBUG: MongoDB updated for:", updatedUser.name);
     console.log("--- 📸 PROFILE UPLOAD SUCCESS ---");
 
-    res.status(200).json({
-      message: "Profile picture updated successfully",
-      profileImageUrl: imageUrl
+    res.status(200).json({ 
+      message: "Success", 
+      profileImageUrl: imageUrl 
     });
   } catch (error) {
-    console.error("❌ DEBUG: Cloudinary/DB Error:", error.message);
+    console.error("❌ DEBUG: Upload Error:", error.message);
     res.status(500).json({ error: "Server error during image upload" });
   }
 };
