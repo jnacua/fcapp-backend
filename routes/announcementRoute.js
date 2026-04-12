@@ -1,5 +1,5 @@
 const express = require('express');
-const router = express.Router();
+const router = require('express').Router();
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
@@ -24,10 +24,10 @@ const storage = new CloudinaryStorage({
     },
 });
 
-// ✅ Consistent Key: Using 'image' to match Flutter FilePicker/ApiService
+// ✅ Matches Flutter: request.files.add('image', ...)
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 } 
 });
 
 // ==========================================
@@ -44,11 +44,13 @@ router.post('/', protect, restrictTo('ADMIN'), upload.single('image'), async (re
             status: status || "PUBLISHED",
             createdBy: req.user.id,
             date: date || Date.now(),
-            // ✅ Map the Cloudinary path to 'image' field (or 'file' if your model uses that)
-            image: req.file ? req.file.path : null, 
+            // ✅ FIXED: Maps req.file.path to 'file' to match your Schema
+            file: req.file ? req.file.path : null, 
         };
 
         const announcement = await Announcement.create(announcementData);
+        
+        console.log("✅ Cloudinary URL Saved to 'file' field:", announcement.file);
         res.status(201).json(announcement);
     } catch (err) {
         console.error("❌ CREATE ANNOUNCEMENT ERROR:", err); 
@@ -81,7 +83,8 @@ router.patch('/:id', protect, restrictTo('ADMIN'), upload.single('image'), async
         let updateData = { ...req.body };
 
         if (req.file) {
-            updateData.image = req.file.path; // ✅ Update the URL if a new file is sent
+            // ✅ FIXED: Maps to 'file' to match your Schema
+            updateData.file = req.file.path; 
         }
 
         const updatedAnnouncement = await Announcement.findByIdAndUpdate(
