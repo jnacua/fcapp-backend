@@ -9,7 +9,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
-const authController = require('../controllers/authController'); // ✅ Import controller for profile picture logic
+const authController = require('../controllers/authController'); // ✅ Integrated logic
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
