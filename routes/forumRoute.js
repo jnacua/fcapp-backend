@@ -6,7 +6,9 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
+// ==========================================
 // 0. CLOUDINARY CONFIG
+// ==========================================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -22,7 +24,11 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const upload = multer({ storage: storage });
+// ✅ Consistent Key: Matches Flutter 'image' field
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // ==========================================
 // 1. CREATE POST (Logic: Residents = Pending, Admin = Approved)
@@ -30,18 +36,19 @@ const upload = multer({ storage: storage });
 router.post('/create', protect, upload.single('image'), async (req, res) => {
     try {
         const { title, content, topic, audience } = req.body;
-        const isAdmin = req.user && req.user.role === 'ADMIN';
+        const isAdmin = req.user && req.user.role.toUpperCase() === 'ADMIN';
 
         const newPost = new Forum({
             userId: req.user.id,
             title: title || "Untitled Thread",
             content: content,
+            // ✅ Cloudinary URL saved to 'image' field
             image: req.file ? req.file.path : null, 
-            topic: topic || 'General',
-            audience: audience || 'All Residents',
-            // ✅ Logic: Only Admins can create 'THREAD'
+            topic: topic || 'GENERAL',
+            audience: audience || 'ALL RESIDENTS',
+            // Only Admins can create 'THREAD', Residents create 'POST'
             postType: isAdmin ? 'THREAD' : 'POST',
-            // ✅ Logic: Residents MUST be approved by Admin first
+            // Residents MUST be approved by Admin first
             status: isAdmin ? 'Approved' : 'Pending'
         });
 
@@ -51,28 +58,30 @@ router.post('/create', protect, upload.single('image'), async (req, res) => {
             ? "Thread published successfully!" 
             : "Post submitted! It will appear once an Admin approves it.";
 
+        console.log("✅ Forum Post Created. Cloudinary path:", newPost.image);
+
         res.status(201).json({ 
             message: responseMsg, 
             status: newPost.status,
             post: newPost 
         });
     } catch (err) {
+        console.error("❌ Forum Create Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
 // ==========================================
-// 2. GET POSTS (Residents see Approved, Admins see All for Filtering)
+// 2. GET POSTS (Residents see Approved, Admins see All)
 // ==========================================
 router.get('/all', protect, async (req, res) => {
     try {
         let query = {};
 
-        // ✅ If user is NOT an admin, only show approved posts
-        if (req.user.role !== 'ADMIN') {
+        // If user is NOT an admin, only show approved posts
+        if (req.user.role.toUpperCase() !== 'ADMIN') {
             query = { status: { $regex: /^approved$/i } };
         } 
-        // ✅ Admins get the full list so they can see "Rejected/Archived" posts too
 
         const posts = await Forum.find(query)
             .populate('userId', 'name')
@@ -94,7 +103,7 @@ router.post('/comment/:postId', protect, async (req, res) => {
         
         if (!post) return res.status(404).json({ message: "Post not found" });
 
-        // ✅ If parentCommentId is provided, it's a REPLY
+        // If parentCommentId is provided, it's a REPLY
         if (parentCommentId) {
             const parentComment = post.comments.id(parentCommentId);
             if (!parentComment) return res.status(404).json({ message: "Original comment not found" });
@@ -105,7 +114,7 @@ router.post('/comment/:postId', protect, async (req, res) => {
                 text: text
             });
         } else {
-            // ✅ Standard top-level Comment
+            // Standard top-level Comment
             post.comments.push({ 
                 userId: req.user.id, 
                 userName: req.user.name, 
@@ -121,15 +130,15 @@ router.post('/comment/:postId', protect, async (req, res) => {
 });
 
 // ==========================================
-// 4. ADMIN ONLY: Approve/Reject Post (Used for Archiving)
+// 4. ADMIN ONLY: Review Post (Approve/Reject/Archive)
 // ==========================================
 router.patch('/review/:postId', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { status } = req.body; // Expecting 'Approved' or 'Rejected'
+        const { status } = req.body; 
         
-        // Validation to prevent setting weird statuses
-        if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
-            return res.status(400).json({ message: "Invalid status" });
+        const validStatuses = ['Approved', 'Rejected', 'Pending', 'Archived'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({ message: "Invalid status provided" });
         }
 
         const post = await Forum.findByIdAndUpdate(
