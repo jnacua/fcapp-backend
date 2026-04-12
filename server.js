@@ -23,7 +23,7 @@ const dashboardRoutes = require('./routes/dashboardRoute');
 const app = express();
 const server = http.createServer(app);
 
-// --- 1. SOCKET.IO SETUP ---
+// --- 1. SOCKET.IO SETUP WITH TRACE LOGGING ---
 const io = new Server(server, {
     cors: {
         origin: "*", 
@@ -34,11 +34,21 @@ const io = new Server(server, {
     transports: ['websocket', 'polling']
 });
 
+// ✅ DEBUGGER: This prints EVERY connection attempt to your Render logs
+io.use((socket, next) => {
+    console.log(`🔍 DEBUG: Connection Attempt from ${socket.handshake.headers.origin}`);
+    console.log(`   -> ID: ${socket.id} | Transport: ${socket.conn.transport.name}`);
+    next();
+});
+
 app.set('socketio', io);
 
 io.on('connection', (socket) => {
-    console.log(`🔌 New connection: ${socket.id}`);
-    socket.on('disconnect', () => console.log('❌ User disconnected'));
+    console.log(`✅ SUCCESS: Admin Socket Connected: ${socket.id}`);
+    
+    socket.on('disconnect', (reason) => {
+        console.log(`🔌 DISCONNECTED: ${socket.id} | Reason: ${reason}`);
+    });
 });
 
 // --- 2. ROBUST CORS CONFIGURATION ---
@@ -50,15 +60,17 @@ app.use(cors({
     optionsSuccessStatus: 200 
 }));
 
-// Middlewares and Routes exactly as you have them...
+// --- 3. MIDDLEWARE ---
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
+// Email Transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -74,7 +86,7 @@ app.use((req, res, next) => {
 
 app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
 
-// API Routes
+// --- 5. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
