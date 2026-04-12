@@ -1,4 +1,5 @@
 const Payment = require('../models/paymentModel');
+const User = require('../models/userModel'); // 🛡️ Directly imported for the fallback search
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 
@@ -6,7 +7,7 @@ const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587, // ✅ Standard secure port for Gmail
+  port: 587, // ✅ Port 587 is more secure and stable for Render-to-Gmail traffic
   secure: false,
   auth: {
     user: process.env.EMAIL_USER, 
@@ -18,10 +19,10 @@ const transporter = nodemailer.createTransport({
 // ✅ Reusable Receipt Email Function
 const sendReceiptEmail = async (userEmail, billData) => {
   const mailOptions = {
-    // 🛡️ AUTHENTICATED MASK: This stops Gmail from silent-dropping your mail
+    // 🛡️ AUTHENTICATED MASK: Bypasses Gmail's security filters that block personal gmail addresses sent via SMTP
     from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
     to: userEmail,
-    replyTo: 'jeianpaolonacua07@gmail.com', // Residents reply to your real email
+    replyTo: 'jeianpaolonacua07@gmail.com', // Residents see this when they click reply
     subject: `Official Receipt - ${billData.month} ${new Date().getFullYear()}`,
     html: `
       <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
@@ -58,7 +59,7 @@ const sendReceiptEmail = async (userEmail, billData) => {
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
-    // 🛡️ AUTHENTICATED MASK: Crucial for Gmail delivery
+    // 🛡️ AUTHENTICATED MASK: This tells Gmail that Brevo is the authorized sender
     from: `"FCAPP Utilities" <mail-sender@brevo.com>`, 
     to: userEmail,
     replyTo: 'jeianpaolonacua07@gmail.com',
@@ -217,26 +218,28 @@ exports.paymongoWebhook = async (req, res) => {
   }
 };
 
-// ✅ UPDATED: Manual Reminder with Triple-Layer Fallback
+// ✅ UPDATED: Manual Reminder with Triple-Layer Fallback (String ID fix)
 exports.sendManualReminder = async (req, res) => {
   try {
     const { billId } = req.body;
-    const User = require('../models/userModel'); 
     
-    // 1. Find bill
+    // 1. Find bill and attempt to populate user
     const bill = await Payment.findById(billId).populate('userId');
     if (!bill) return res.status(404).json({ message: "Payment record not found." });
 
+    // 📄 Print full bill state to Render logs for debugging
+    console.log("📄 [DEBUG] FULL BILL DATA:", JSON.stringify(bill, null, 2));
+
     let residentEmail = bill.userId?.email;
 
-    // 🛡️ FALLBACK 1: If populate failed, search User manually by ID
+    // 🛡️ FALLBACK 1: Search User manually by ID (Fixes String vs ObjectId mismatch)
     if (!residentEmail && bill.userId) {
-      console.log("⚠️ Populate failed. Searching User by ID manually...");
+      console.log("⚠️ Population failed. Searching User by ID manually...");
       const directUser = await User.findById(bill.userId);
       residentEmail = directUser?.email;
     }
 
-    // 🛡️ FALLBACK 2: If ID search failed, search User by NAME
+    // 🛡️ FALLBACK 2: Search User by NAME (Last resort brute force)
     if (!residentEmail) {
       console.log(`⚠️ ID search failed. Searching User by Name: ${bill.userName}`);
       const nameUser = await User.findOne({ name: bill.userName });
@@ -245,10 +248,10 @@ exports.sendManualReminder = async (req, res) => {
 
     if (!residentEmail) {
       console.error(`❌ Still undefined for resident: ${bill.userName}`);
-      return res.status(404).json({ message: "Resident email not found." });
+      return res.status(404).json({ message: "Resident email is required or invalid" });
     }
 
-    console.log(`📩 FOUND: ${residentEmail}. Sending via Brevo domain...`);
+    console.log(`📩 FOUND EMAIL: ${residentEmail}. Sending via Brevo mask...`);
 
     const success = await sendReminderEmail(residentEmail, bill);
     res.status(success ? 200 : 500).json({ message: success ? "Sent" : "Failed" });
