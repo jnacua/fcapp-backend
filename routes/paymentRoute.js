@@ -64,13 +64,13 @@ router.post(
                 return res.status(400).json({ error: "Resident email is required or invalid" });
             }
 
-            // Check if transporter was attached in app.js
             if (!req.transporter) {
-                console.error("❌ ERROR: Email Transporter (Nodemailer) not found on request object.");
-                return res.status(500).json({ error: "Email service is not configured on the server." });
+                console.error("❌ ERROR: Email Transporter not found on request object.");
+                return res.status(500).json({ error: "Email service not configured on server." });
             }
 
             const mailOptions = {
+                // ✅ FIX: Ensure the "from" address is exactly your authenticated EMAIL_USER
                 from: `"FCAPP Admin" <${process.env.EMAIL_USER}>`,
                 to: email,
                 subject: `Payment Reminder: ${type} - ${month}`,
@@ -90,7 +90,6 @@ router.post(
                 `
             };
 
-            // Attempt to send email
             await req.transporter.sendMail(mailOptions);
             console.log(`✅ Email successfully sent to ${email}`);
 
@@ -98,7 +97,6 @@ router.post(
         } catch (err) {
             console.error("❌ NODEMAILER ERROR:", err.message);
             
-            // Specifically check for authentication errors (App Password issues)
             if (err.message.includes('Invalid login') || err.message.includes('auth')) {
                 return res.status(500).json({ error: "Email server authentication failed. Check App Password." });
             }
@@ -129,7 +127,7 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
 
         bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
-        // ✅ Store the permanent Cloudinary HTTPS URL
+        // ✅ Cloudinary HTTPS URL
         bill.receiptImagePath = req.file.path; 
         
         await bill.save();

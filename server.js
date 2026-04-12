@@ -23,78 +23,59 @@ const dashboardRoutes = require('./routes/dashboardRoute');
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Fix for Render Proxy issues
 app.set('trust proxy', 1);
 
-// --- 1. SOCKET.IO SETUP (Optimized for Render) ---
+// --- 1. SOCKET.IO SETUP ---
 const io = new Server(server, {
-    cors: {
-        origin: "*", 
-        methods: ["GET", "POST"],
-        credentials: true
-    },
+    cors: { origin: "*", methods: ["GET", "POST"], credentials: true },
     allowEIO3: true,
     transports: ['websocket', 'polling'],
-    // Keep connection alive on Render Free Tier
     pingTimeout: 60000,
     pingInterval: 25000
-});
-
-io.use((socket, next) => {
-    console.log(`🔍 DEBUG: Connection Attempt from ${socket.handshake.headers.origin}`);
-    next();
 });
 
 app.set('socketio', io);
 
 io.on('connection', (socket) => {
-    console.log(`✅ SUCCESS: Admin Socket Connected: ${socket.id}`);
-    socket.on('disconnect', (reason) => {
-        console.log(`🔌 DISCONNECTED: ${socket.id} | Reason: ${reason}`);
-    });
+    console.log(`✅ Admin Socket Connected: ${socket.id}`);
 });
 
-// --- 2. CORS CONFIGURATION ---
-app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], 
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    credentials: true,
-    optionsSuccessStatus: 200 
-}));
-
-// --- 3. MIDDLEWARE ---
+// --- 2. CORS & MIDDLEWARE ---
+app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// MongoDB Connection
+// --- 3. DATABASE ---
 mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER CONFIG (Robust SSL/Port 465 Version) ---
+// --- 4. EMAIL TRANSPORTER (TLS/PORT 587 VERSION) ---
+// IMPORTANT: EMAIL_USER must be the account that created the EMAIL_PASS
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // Use SSL for Port 465
+  port: 587,
+  secure: false, // Required for Port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS 
   },
-  // Added timeouts to handle Render's slow network handshakes
-  connectionTimeout: 10000, 
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
+  tls: {
+    rejectUnauthorized: false // Helps bypass Render network restrictions
+  },
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
+  socketTimeout: 20000,
 });
 
-// ✅ CRITICAL: Verify Transporter on Startup
+// Verify the connection on boot
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ NODEMAILER ERROR: Connection failed. Possible reasons: App Password, Port 465 blocked, or Gmail Security.");
+    console.error("❌ NODEMAILER ERROR: Connection failed. Check if EMAIL_USER matches the App Password owner.");
     console.error(error);
   } else {
-    console.log("✅ EMAIL SERVER READY: Reminders will be sent successfully.");
+    console.log("✅ EMAIL SERVER READY: Transporter verified successfully.");
   }
 });
 
@@ -120,5 +101,5 @@ app.use('/api/dashboard', dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server + Real-time Socket running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
