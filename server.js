@@ -18,8 +18,9 @@ const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
 const paymongoRoutes = require('./routes/paymongoRoutes');
 const dashboardRoutes = require('./routes/dashboardRoute');
-// ✅ Added Visitor Route Import
 const visitorRoutes = require('./routes/visitorRoute');
+// ✅ 1. Import the New Log Route
+const logRoutes = require('./routes/logRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -70,8 +71,9 @@ app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-// ✅ Added Visitor API mounting
 app.use('/api/visitor', visitorRoutes);
+// ✅ 2. Mount the Log Route
+app.use('/api/logs', logRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
