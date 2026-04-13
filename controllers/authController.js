@@ -6,19 +6,19 @@ const nodemailer = require('nodemailer');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
- * ✅ FINAL BULLETPROOF TRANSPORTER (Using Brevo)
- * We switch from Gmail to Brevo to bypass Render's network blocks.
- * Make sure to update your Render Env Vars: 
- * EMAIL_USER: a7dd86001@smtp-brevo.com
- * EMAIL_PASS: (Your Brevo SMTP Key)
+ * ✅ SCENARIO 3: USING PORT 2525
+ * Brevo supports Port 2525, which is rarely blocked by Render's firewall.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false, // TLS
+  port: 2525, // 👈 Changed from 587 to 2525
+  secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, 
-    pass: process.env.EMAIL_PASS  
+    user: process.env.EMAIL_USER, // a7dd86001@smtp-brevo.com
+    pass: process.env.EMAIL_PASS  // Your Brevo SMTP Master Key
+  },
+  tls: {
+    rejectUnauthorized: false
   }
 });
 
@@ -115,9 +115,9 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    // ✅ SAFETY LOG: Check Render Logs if email is blocked/delayed
+    // ✅ SAFETY LOG: Check Render Logs immediately if email fails
     console.log(`\n*****************************************`);
-    console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
+    console.log(`🔑 FORGOT PASS OTP FOR ${user.email}: ${otp}`);
     console.log(`*****************************************\n`);
 
     const mailOptions = {
@@ -135,13 +135,12 @@ exports.forgotPassword = async (req, res) => {
     };
 
     /**
-     * ✅ NON-BLOCKING SEND:
-     * This returns 200 to your Flutter app immediately so the UI 
-     * changes, while the email sends in the background.
+     * ✅ NON-BLOCKING BACKGROUND TASK
+     * We don't 'await' here. The app proceeds, and Node handles the email.
      */
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
-        console.error(`❌ NODEMAILER/BREVO ERROR: ${error.message}`);
+        console.error(`❌ NODEMAILER/BREVO ERROR (Port 2525): ${error.message}`);
       } else {
         console.log(`✅ SUCCESS: OTP email sent to ${user.email}`);
       }
