@@ -3,7 +3,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path'); 
-const nodemailer = require('nodemailer');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -52,24 +51,10 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL TRANSPORTER (GMAIL VERSION - NO BLOCKING) ---
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'nacuapaolo@gmail.com',
-    pass: process.env.EMAIL_PASS 
-  }
-});
-
-// ✅ MODIFIED: We removed the .verify() block that was causing the timeout/hang.
-// The server will now start instantly regardless of the email status.
-console.log("⏳ Email service initialized (Verification skipped to prevent login hangs).");
-
-app.use((req, res, next) => {
-  req.transporter = transporter;
-  next();
-});
-
+// --- 4. EMAIL SERVICE ---
+// ✅ REMOVED: The Gmail transporter from here. 
+// Your authController handles the Brevo connection now.
+console.log("🚀 Email service initialized via authController.");
 
 app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
 
