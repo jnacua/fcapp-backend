@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const Visitor = require('../models/Visitor'); // Verify this path matches your project
-const Panic = require('../models/Panic');     // Verify this path matches your project
+const Visitor = require('../models/visitorModel'); // Check if it's visitorModel.js or just visitor.js
+const Panic = require('../models/panicModel');     // Check if it's panicModel.js or just panic.js
 
 // GET /api/logs/all
 router.get('/all', async (req, res) => {
