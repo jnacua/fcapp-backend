@@ -3,15 +3,17 @@ const router = express.Router();
 const PanicAlert = require('../models/panicModel');
 const auth = require('../middleware/authMiddleware');
 
-// ✅ 1. GET ALERTS (Global for Admin, Personal for Residents)
-// This MUST be above any route with /:id to prevent 404 errors
+// ✅ 1. GET ALERTS (Global for Admin & Security, Personal for Residents)
 router.get('/my-alerts', auth.protect, async (req, res) => {
     try {
         let query = {};
+        
+        // Normalize the role to Uppercase for a safe check
+        const userRole = req.user.role ? req.user.role.toUpperCase() : '';
 
-        // If the user is NOT an admin, only show their own alerts.
-        // If they ARE an admin, the query stays empty {}, fetching ALL records.
-        if (req.user.role !== 'ADMIN') {
+        // ✅ UPDATED: If the user is NOT an Admin AND NOT Security, filter by their userId.
+        // This allows both ADMIN and SECURITY roles to see ALL community records.
+        if (userRole !== 'ADMIN' && userRole !== 'SECURITY') {
             query = { userId: req.user.id };
         }
 
@@ -86,8 +88,9 @@ router.post('/send', auth.protect, async (req, res) => {
     }
 });
 
-// ✅ 4. RESOLVE PANIC ALERT (Admin)
-router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN'), async (req, res) => {
+// ✅ 4. RESOLVE PANIC ALERT (Admin & Security)
+// ✅ UPDATED: Added 'SECURITY' to restrictTo so guards can actually click the resolve button.
+router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         const updatedAlert = await PanicAlert.findByIdAndUpdate(
             req.params.id, 
