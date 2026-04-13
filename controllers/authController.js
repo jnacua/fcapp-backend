@@ -32,21 +32,25 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   if (!isApproved && !isRejected) return;
 
   const mailOptions = {
-    // ✅ FIX: Using the Brevo master address to pass DMARC/Spam checks
-    from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
-    replyTo: "jeianpaolonacua07@gmail.com", // Replies go to your real email
-    to: userEmail,
-    subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
-    html: `<h3>Account ${isApproved ? 'Approved' : 'Rejected'}</h3><p>Hello ${userName}, your account is now ${statusLower}.</p>`
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ SUCCESS: Status email sent!`);
-  } catch (error) {
-    console.error(`❌ NODEMAILER ERROR: ${error.message}`);
-  }
-};
+      // ✅ Use a clearer name
+      from: `"FCAPP Support" <a7dd86001@smtp-brevo.com>`, 
+      replyTo: "jeianpaolonacua07@gmail.com",
+      to: user.email,
+      // ✅ Use a more standard subject line
+      subject: "Verification Code: " + otp + " for FCAPP", 
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2>Security Verification</h2>
+          <p>Hello ${user.name},</p>
+          <p>We received a request to reset your password. Use the code below to proceed:</p>
+          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px;">
+            ${otp}
+          </div>
+          <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+          <hr style="border: none; border-top: 1px solid #eee;" />
+          <p style="font-size: 12px; color: #999;">FCAPP Security Team</p>
+        </div>`
+    };
 
 // ================= REGISTER CONTROLLER =================
 exports.register = async (req, res) => {
