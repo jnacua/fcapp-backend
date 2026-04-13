@@ -3,15 +3,19 @@ const router = express.Router();
 const Visitor = require('../models/visitorModel'); 
 const Panic = require('../models/panicModel');     
 
-// ✅ 1. NEW: Get Statistics for Dashboard Cards
+// ✅ 1. Get Statistics for Dashboard Cards
 // URL: /api/logs/security-stats
 router.get('/security-stats', async (req, res) => {
     try {
+        // Count all visitors in the database
         const visitorCount = await Visitor.countDocuments();
-        // Count only active or pending panic alerts
-        const panicCount = await Panic.countDocuments({ 
-            status: { $in: ['ACTIVE', 'PENDING', 'Active'] } 
-        });
+        
+        // Count ALL panic documents regardless of status 
+        // (This prevents the '0' issue if statuses don't match exactly)
+        const panicCount = await Panic.countDocuments();
+
+        // Log to Render console for debugging
+        console.log(`📊 Stats Sync: Visitors(${visitorCount}) | Panics(${panicCount})`);
 
         res.json({
             visitors: visitorCount,
@@ -33,15 +37,15 @@ router.get('/all', async (req, res) => {
         let combinedLogs = [
             ...visitors.map(v => ({ 
                 type: 'VISITOR', 
-                // ✅ Check all possible name fields to prevent "N/A"
-                name: v.name || v.visitorName || v.fullName || 'Unknown Visitor', 
+                // ✅ Expanded name check: tries every common field name
+                name: v.name || v.visitorName || v.fullName || v.visitor_name || 'Unknown Visitor', 
                 status: v.status || 'IN', 
                 timestamp: v.createdAt 
             })),
             ...panics.map(p => ({ 
                 type: 'PANIC', 
-                // ✅ Pull actual resident name or fallback to unit/emergency
-                name: p.name || p.residentName || p.blockLot || 'Distress Signal', 
+                // ✅ Expanded name check: pulls resident info or location
+                name: p.name || p.residentName || p.resident_name || p.blockLot || 'Emergency Alert', 
                 status: p.status || 'ACTIVE', 
                 timestamp: p.createdAt 
             }))
