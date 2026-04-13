@@ -6,26 +6,20 @@ const nodemailer = require('nodemailer');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
- * ✅ BULLETPROOF TRANSPORTER CONFIGURATION
- * Using Port 465 + pool:true to keep the connection alive on Render.
+ * ✅ FINAL BULLETPROOF TRANSPORTER (Using Brevo)
+ * We switch from Gmail to Brevo to bypass Render's network blocks.
+ * Make sure to update your Render Env Vars: 
+ * EMAIL_USER: a7dd86001@smtp-brevo.com
+ * EMAIL_PASS: (Your Brevo SMTP Key)
  */
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, 
-  pool: true, // ✅ Keeps connection open to prevent handshake timeouts
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false, // TLS
   auth: {
-    user: 'nacuapaolo@gmail.com',
-    pass: process.env.EMAIL_PASS 
-  },
-  name: 'gmail.com',
-  tls: {
-    rejectUnauthorized: false, // Bypasses SSL handshake blocks
-    minVersion: "TLSv1.2"
-  },
-  connectionTimeout: 20000, 
-  greetingTimeout: 20000,
-  socketTimeout: 30000,
+    user: process.env.EMAIL_USER, 
+    pass: process.env.EMAIL_PASS  
+  }
 });
 
 // ✅ Reusable Function to send Approval/Rejection emails
@@ -121,7 +115,7 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    // ✅ SAFETY LOG: Copy this code from Render Logs if email is delayed!
+    // ✅ SAFETY LOG: Check Render Logs if email is blocked/delayed
     console.log(`\n*****************************************`);
     console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
     console.log(`*****************************************\n`);
@@ -142,13 +136,12 @@ exports.forgotPassword = async (req, res) => {
 
     /**
      * ✅ NON-BLOCKING SEND:
-     * We don't use 'await' here. The server returns 200 to the app 
-     * immediately so the screen changes, while the email sends 
-     * in the background.
+     * This returns 200 to your Flutter app immediately so the UI 
+     * changes, while the email sends in the background.
      */
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
-        console.error(`❌ NODEMAILER ERROR: ${error.message}`);
+        console.error(`❌ NODEMAILER/BREVO ERROR: ${error.message}`);
       } else {
         console.log(`✅ SUCCESS: OTP email sent to ${user.email}`);
       }
