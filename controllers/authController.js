@@ -14,7 +14,7 @@ const transporter = nodemailer.createTransport({
   port: 2525, 
   secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // Set to a7dd86001@smtp-brevo.com in Render
+    user: process.env.EMAIL_USER, // Ensure this is a7dd86001@smtp-brevo.com in Render
     pass: process.env.EMAIL_PASS  // Your Brevo SMTP Master Key
   },
   tls: {
@@ -32,7 +32,7 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   if (!isApproved && !isRejected) return;
 
   const mailOptions = {
-    // ✅ CRITICAL: Use the Brevo SMTP login to pass Gmail security checks
+    // ✅ FIX: Use the Brevo SMTP login address to pass Gmail security checks
     from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
     to: userEmail,
     subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
@@ -121,7 +121,7 @@ exports.forgotPassword = async (req, res) => {
     console.log(`*****************************************\n`);
 
     const mailOptions = {
-      // ✅ CRITICAL: Use the Brevo SMTP login address to bypass Gmail spam blocks
+      // ✅ FIX: Using the Brevo SMTP login address to bypass Gmail spam blocks
       from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
       to: user.email,
       subject: "Your Password Reset Code - FCAPP",
