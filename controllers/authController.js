@@ -6,15 +6,15 @@ const nodemailer = require('nodemailer');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
- * ✅ SCENARIO 3: USING PORT 2525
- * Brevo supports Port 2525, which is rarely blocked by Render's firewall.
+ * ✅ BREVO TRANSPORTER CONFIGURATION
+ * Using Port 2525 to bypass Render outbound blocks.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 2525, // 👈 Changed from 587 to 2525
+  port: 2525, 
   secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // a7dd86001@smtp-brevo.com
+    user: process.env.EMAIL_USER, // Ensure this is jeianpaolonacua07@gmail.com in Render
     pass: process.env.EMAIL_PASS  // Your Brevo SMTP Master Key
   },
   tls: {
@@ -32,7 +32,8 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   if (!isApproved && !isRejected) return;
 
   const mailOptions = {
-    from: `"FCAPP System" <nacuapaolo@gmail.com>`,
+    // ✅ MUST match your Brevo registered email
+    from: `"FCAPP System" <jeianpaolonacua07@gmail.com>`, 
     to: userEmail,
     subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
     html: `<h3>Account ${isApproved ? 'Approved' : 'Rejected'}</h3><p>Hello ${userName}, your account is now ${statusLower}.</p>`
@@ -115,13 +116,13 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    // ✅ SAFETY LOG: Check Render Logs immediately if email fails
     console.log(`\n*****************************************`);
     console.log(`🔑 FORGOT PASS OTP FOR ${user.email}: ${otp}`);
     console.log(`*****************************************\n`);
 
     const mailOptions = {
-      from: `"FCAPP System" <nacuapaolo@gmail.com>`,
+      // ✅ MUST match your Brevo registered email
+      from: `"FCAPP System" <jeianpaolonacua07@gmail.com>`, 
       to: user.email,
       subject: "Your Password Reset Code - FCAPP",
       html: `
@@ -134,13 +135,10 @@ exports.forgotPassword = async (req, res) => {
         </div>`
     };
 
-    /**
-     * ✅ NON-BLOCKING BACKGROUND TASK
-     * We don't 'await' here. The app proceeds, and Node handles the email.
-     */
+    // Send the email without blocking the response
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
-        console.error(`❌ NODEMAILER/BREVO ERROR (Port 2525): ${error.message}`);
+        console.error(`❌ NODEMAILER/BREVO ERROR: ${error.message}`);
       } else {
         console.log(`✅ SUCCESS: OTP email sent to ${user.email}`);
       }
