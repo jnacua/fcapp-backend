@@ -18,6 +18,8 @@ const panicRoutes = require('./routes/panicRoute');
 const vehicleRoutes = require('./routes/vehicleRoute');
 const paymongoRoutes = require('./routes/paymongoRoutes');
 const dashboardRoutes = require('./routes/dashboardRoute');
+// ✅ Added Visitor Route Import
+const visitorRoutes = require('./routes/visitorRoute');
 
 const app = express();
 const server = http.createServer(app);
@@ -52,8 +54,6 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // --- 4. EMAIL SERVICE ---
-// ✅ REMOVED: The Gmail transporter from here. 
-// Your authController handles the Brevo connection now.
 console.log("🚀 Email service initialized via authController.");
 
 app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
@@ -70,6 +70,8 @@ app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+// ✅ Added Visitor API mounting
+app.use('/api/visitor', visitorRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
