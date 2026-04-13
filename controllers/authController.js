@@ -7,7 +7,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * ✅ BREVO TRANSPORTER CONFIGURATION
- * Using Port 2525 to bypass Render outbound blocks.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
@@ -22,9 +21,8 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ✅ Reusable Function to send Approval/Rejection emails
+// ✅ REUSABLE STATUS EMAIL
 const sendStatusEmail = async (userEmail, userName, status) => {
-  console.log(`\n--- 📧 EMAIL ATTEMPT START ---`);
   const statusLower = status.toLowerCase();
   const isApproved = statusLower === 'active' || statusLower === 'approved';
   const isRejected = statusLower === 'rejected';
@@ -32,7 +30,7 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   if (!isApproved && !isRejected) return;
 
   const mailOptions = {
-    // ✅ FIX: Use the Brevo master address to pass DMARC/Spam checks
+    // ✅ FIX: Using the Brevo master address to bypass DMARC blocks
     from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
     to: userEmail,
     subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
@@ -73,8 +71,6 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(`--- 📡 LOGIN ATTEMPT START: ${email} ---`);
-
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -97,7 +93,7 @@ exports.login = async (req, res) => {
     }
     return res.status(403).json({ message: "Account restricted." });
   } catch (err) {
-    res.status(500).json({ message: 'Server error during login' });
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -116,12 +112,10 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    console.log(`\n*****************************************`);
-    console.log(`🔑 FORGOT PASS OTP FOR ${user.email}: ${otp}`);
-    console.log(`*****************************************\n`);
+    console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
 
     const mailOptions = {
-      // ✅ FIX: Using the Brevo SMTP login address to bypass Gmail security filters
+      // ✅ FIX: Use the Brevo master address. This is the only "authorized" sender.
       from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
       to: user.email,
       subject: "Your Password Reset Code - FCAPP",
@@ -134,7 +128,6 @@ exports.forgotPassword = async (req, res) => {
         </div>`
     };
 
-    // Non-blocking background send
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
         console.error(`❌ NODEMAILER/BREVO ERROR: ${error.message}`);
