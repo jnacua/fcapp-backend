@@ -7,66 +7,60 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * ✅ BREVO TRANSPORTER CONFIGURATION
- * Using Port 2525 to bypass Render outbound blocks.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 2525, 
   secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // Set to a7dd86001@smtp-brevo.com in Render
-    pass: process.env.EMAIL_PASS  // Your Brevo SMTP Master Key
+    user: process.env.EMAIL_USER, 
+    pass: process.env.EMAIL_PASS  
   },
   tls: {
     rejectUnauthorized: false
   }
 });
 
-// ✅ Reusable Function to send Approval/Rejection emails
+// ✅ REUSABLE STATUS EMAIL
 const sendStatusEmail = async (userEmail, userName, status) => {
-  console.log(`\n--- 📧 EMAIL ATTEMPT START ---`);
   const statusLower = status.toLowerCase();
-  const isApproved = statusLower === 'active' || statusLower === 'approved';
-  const isRejected = statusLower === 'rejected';
-
-  if (!isApproved && !isRejected) return;
-
+  
   const mailOptions = {
-      // ✅ Use a clearer name
-      from: `"FCAPP Support" <a7dd86001@smtp-brevo.com>`, 
-      replyTo: "jeianpaolonacua07@gmail.com",
-      to: user.email,
-      // ✅ Use a more standard subject line
-      subject: "Verification Code: " + otp + " for FCAPP", 
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2>Security Verification</h2>
-          <p>Hello ${user.name},</p>
-          <p>We received a request to reset your password. Use the code below to proceed:</p>
-          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px;">
-            ${otp}
-          </div>
-          <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
-          <hr style="border: none; border-top: 1px solid #eee;" />
-          <p style="font-size: 12px; color: #999;">FCAPP Security Team</p>
-        </div>`
-    };
+    from: `"FCAPP Support" <a7dd86001@smtp-brevo.com>`, 
+    replyTo: "jeianpaolonacua07@gmail.com",
+    to: userEmail,
+    subject: `Account Status Update: ${statusLower.toUpperCase()}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
+        <h2 style="color: #2c3e50;">Account Update</h2>
+        <p>Hello <strong>${userName}</strong>,</p>
+        <p>Your account status has been updated to: <span style="color: #27ae60; font-weight: bold;">${statusLower}</span></p>
+        <p>You can now log in to the FCAPP mobile application.</p>
+        <br/>
+        <p style="font-size: 12px; color: #7f8c8d;">This is an automated message from the FCAPP Management System.</p>
+      </div>`
+  };
 
-// ================= REGISTER CONTROLLER =================
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ SUCCESS: Status email sent!`);
+  } catch (error) {
+    console.error(`❌ NODEMAILER ERROR: ${error.message}`);
+  }
+};
+
+// ================= REGISTER =================
 exports.register = async (req, res) => {
   try {
     const { email, password, role, name, mobileNumber, blockLot } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Email and password are required' });
-
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'User already exists' });
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({ 
       email, password: hashedPassword, role: role || 'resident',
       name, mobileNumber, blockLot, status: 'pending' 
     });
-
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ message: 'Registered successfully', user, token });
   } catch (err) {
@@ -74,84 +68,64 @@ exports.register = async (req, res) => {
   }
 };
 
-// ================= LOGIN CONTROLLER =================
+// ================= LOGIN =================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(`--- 📡 LOGIN ATTEMPT START: ${email} ---`);
-
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
-
     const dbStatus = user.status ? user.status.toLowerCase() : 'pending';
     if (dbStatus === 'pending') return res.status(403).json({ message: "Wait for admin approval" });
-
-    if (dbStatus === 'active' || dbStatus === 'approved') {
-      const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-      return res.json({
-        message: 'Login successful',
-        token: token,
-        user: { 
-          id: user._id, email: user.email, role: user.role, name: user.name,
-          status: user.status, blockLot: user.blockLot || 'N/A', profileImage: user.profileImage || ''
-        }
-      });
-    }
-    return res.status(403).json({ message: "Account restricted." });
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ message: 'Login successful', token, user });
   } catch (err) {
-    res.status(500).json({ message: 'Server error during login' });
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
-// ================= FORGOT PASSWORD: SEND OTP =================
+// ================= FORGOT PASSWORD =================
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email: email.toLowerCase() });
-    
-    if (!user) {
-      return res.status(404).json({ message: "User with this email does not exist." });
-    }
+    if (!user) return res.status(404).json({ message: "User not found" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetPasswordOTP = otp;
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    console.log(`\n*****************************************`);
-    console.log(`🔑 FORGOT PASS OTP FOR ${user.email}: ${otp}`);
-    console.log(`*****************************************\n`);
+    console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
 
     const mailOptions = {
-      from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
+      from: `"FCAPP Support" <a7dd86001@smtp-brevo.com>`, 
       replyTo: "jeianpaolonacua07@gmail.com",
       to: user.email,
-      subject: "Your Password Reset Code - FCAPP",
+      subject: `Verification Code: ${otp}`,
       html: `
-        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-          <h2 style="color: #66BB8A;">Password Reset Request</h2>
+        <div style="font-family: Arial, sans-serif; padding: 30px; border: 1px solid #ddd; border-radius: 8px; max-width: 500px; margin: auto;">
+          <h2 style="color: #27ae60; text-align: center;">FCAPP Security</h2>
           <p>Hello ${user.name},</p>
-          <p>Your 6-digit verification code is: <b style="font-size: 20px;">${otp}</b></p>
-          <p>This code expires in 10 minutes.</p>
+          <p>Your verification code for password reset is:</p>
+          <div style="background: #f9f9f9; border: 1px dashed #27ae60; padding: 15px; text-align: center; font-size: 30px; font-weight: bold; letter-spacing: 8px; color: #333;">
+            ${otp}
+          </div>
+          <p style="font-size: 13px; color: #666; text-align: center;">This code will expire in 10 minutes.</p>
         </div>`
     };
 
-    // Non-blocking background send
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
-        console.error(`❌ NODEMAILER/BREVO ERROR: ${error.message}`);
+        console.error(`❌ BREVO ERROR: ${error.message}`);
       } else {
-        console.log(`✅ SUCCESS: OTP email sent to ${user.email}`);
+        console.log(`✅ SUCCESS: OTP sent to ${user.email}`);
       }
     });
 
     res.status(200).json({ message: "OTP generated successfully." });
-
   } catch (err) {
-    console.error("❌ Forgot Password Error:", err);
     res.status(500).json({ message: "Error processing request." });
   }
 };
@@ -165,7 +139,6 @@ exports.verifyOTP = async (req, res) => {
       resetPasswordOTP: otp,
       resetPasswordExpires: { $gt: Date.now() } 
     });
-
     if (!user) return res.status(400).json({ message: "Invalid or expired OTP." });
     res.status(200).json({ message: "OTP verified." });
   } catch (err) {
@@ -182,22 +155,18 @@ exports.resetPassword = async (req, res) => {
       resetPasswordOTP: otp,
       resetPasswordExpires: { $gt: Date.now() }
     });
-
     if (!user) return res.status(400).json({ message: "Session expired." });
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
+    user.password = await bcrypt.hash(newPassword, 10);
     user.resetPasswordOTP = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
-
     res.status(200).json({ message: "Password updated successfully." });
   } catch (err) {
     res.status(500).json({ message: "Reset error." });
   }
 };
 
-// ================= ADMIN & PROFILE CONTROLLERS =================
+// ================= ADMIN & PROFILE =================
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
@@ -233,8 +202,7 @@ exports.updateProfilePicture = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No image provided" });
     const imageUrl = req.file.path;
-    const updatedUser = await User.findByIdAndUpdate(req.user.id, { profileImage: imageUrl }, { new: true });
-    if (!updatedUser) return res.status(404).json({ message: 'User not found' });
+    await User.findByIdAndUpdate(req.user.id, { profileImage: imageUrl }, { new: true });
     res.status(200).json({ message: "Success", profileImageUrl: imageUrl });
   } catch (error) {
     res.status(500).json({ error: "Upload failed" });
