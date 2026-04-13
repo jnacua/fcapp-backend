@@ -7,14 +7,13 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * ✅ BREVO TRANSPORTER CONFIGURATION
- * Using Port 2525 to bypass Render outbound blocks.
  */
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 2525, 
   secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // Ensure this is a7dd86001@smtp-brevo.com in Render
+    user: process.env.EMAIL_USER, // Set to a7dd86001@smtp-brevo.com in Render
     pass: process.env.EMAIL_PASS  // Your Brevo SMTP Master Key
   },
   tls: {
@@ -24,7 +23,6 @@ const transporter = nodemailer.createTransport({
 
 // ✅ Reusable Function to send Approval/Rejection emails
 const sendStatusEmail = async (userEmail, userName, status) => {
-  console.log(`\n--- 📧 EMAIL ATTEMPT START ---`);
   const statusLower = status.toLowerCase();
   const isApproved = statusLower === 'active' || statusLower === 'approved';
   const isRejected = statusLower === 'rejected';
@@ -32,7 +30,7 @@ const sendStatusEmail = async (userEmail, userName, status) => {
   if (!isApproved && !isRejected) return;
 
   const mailOptions = {
-    // ✅ FIX: Use the Brevo SMTP login address to pass Gmail security checks
+    // ✅ FIX: Use the Brevo identity to pass DMARC checks
     from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
     to: userEmail,
     subject: isApproved ? "Account Approved - FCAPP" : "Account Status Update - FCAPP",
@@ -73,8 +71,6 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(`--- 📡 LOGIN ATTEMPT START: ${email} ---`);
-
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -97,7 +93,7 @@ exports.login = async (req, res) => {
     }
     return res.status(403).json({ message: "Account restricted." });
   } catch (err) {
-    res.status(500).json({ message: 'Server error during login' });
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -116,12 +112,10 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; 
     await user.save();
 
-    console.log(`\n*****************************************`);
-    console.log(`🔑 FORGOT PASS OTP FOR ${user.email}: ${otp}`);
-    console.log(`*****************************************\n`);
+    console.log(`🔑 OTP FOR ${user.email}: ${otp}`);
 
     const mailOptions = {
-      // ✅ FIX: Using the Brevo SMTP login address to bypass Gmail spam blocks
+      // ✅ FIX: Using the Brevo SMTP login address to bypass Gmail security filters
       from: `"FCAPP System" <a7dd86001@smtp-brevo.com>`, 
       to: user.email,
       subject: "Your Password Reset Code - FCAPP",
@@ -129,8 +123,7 @@ exports.forgotPassword = async (req, res) => {
         <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
           <h2 style="color: #66BB8A;">Password Reset Request</h2>
           <p>Hello ${user.name},</p>
-          <p>Your 6-digit verification code is:</p>
-          <h1 style="background: #f4f4f4; padding: 10px; text-align: center; letter-spacing: 5px; color: #333;">${otp}</h1>
+          <p>Your 6-digit verification code is: <b style="font-size: 20px;">${otp}</b></p>
           <p>This code expires in 10 minutes.</p>
         </div>`
     };
@@ -162,11 +155,8 @@ exports.verifyOTP = async (req, res) => {
       resetPasswordExpires: { $gt: Date.now() } 
     });
 
-    if (!user) {
-      return res.status(400).json({ message: "Invalid or expired OTP." });
-    }
-
-    res.status(200).json({ message: "OTP verified. Proceed to reset password." });
+    if (!user) return res.status(400).json({ message: "Invalid or expired OTP." });
+    res.status(200).json({ message: "OTP verified." });
   } catch (err) {
     res.status(500).json({ message: "Verification error." });
   }
@@ -182,9 +172,7 @@ exports.resetPassword = async (req, res) => {
       resetPasswordExpires: { $gt: Date.now() }
     });
 
-    if (!user) {
-      return res.status(400).json({ message: "Session expired. Please try again." });
-    }
+    if (!user) return res.status(400).json({ message: "Session expired." });
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.password = hashedPassword;
@@ -192,7 +180,6 @@ exports.resetPassword = async (req, res) => {
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    console.log(`✅ Password reset success for ${email}`);
     res.status(200).json({ message: "Password updated successfully." });
   } catch (err) {
     res.status(500).json({ message: "Reset error." });
@@ -215,7 +202,7 @@ exports.updateStatus = async (req, res) => {
     const user = await User.findByIdAndUpdate(req.params.id, { status: status }, { new: true });
     if (!user) return res.status(404).json({ message: 'User not found' });
     sendStatusEmail(user.email, user.name, status);
-    res.status(200).json({ message: `Status updated to ${status}`, user });
+    res.status(200).json({ message: `Status updated`, user });
   } catch (err) {
     res.status(500).json({ message: 'Update failed' });
   }
@@ -232,7 +219,6 @@ exports.getMe = async (req, res) => {
 };
 
 exports.updateProfilePicture = async (req, res) => {
-  console.log("--- 📸 PROFILE UPLOAD START ---");
   try {
     if (!req.file) return res.status(400).json({ error: "No image provided" });
     const imageUrl = req.file.path;
