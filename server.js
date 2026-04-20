@@ -24,25 +24,26 @@ const logRoutes = require('./routes/logRoutes');
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Fix for Render Proxy issues
 app.set('trust proxy', 1);
+
+// ✅ MASTER LIST OF ALLOWED ORIGINS
+const allowedOrigins = [
+    "https://fiesta-casitas-admin.vercel.app",
+    "https://fiesta-casitas-security.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://localhost:58739" // ✅ ADDED THIS FROM YOUR SCREENSHOT
+];
 
 // --- 1. SOCKET.IO SETUP ---
 const io = new Server(server, {
     cors: { 
-        // ✅ CRITICAL FIX: Explicitly list your Vercel URLs. 
-        // Using "*" often fails with Socket.io on production.
-        origin: [
-            "https://fiesta-casitas-admin.vercel.app", 
-            "https://fiesta-casitas-security.vercel.app",
-            "http://localhost:3000",
-            "http://localhost:5000"
-        ],
+        origin: allowedOrigins,
         methods: ["GET", "POST"], 
         credentials: true 
     },
     allowEIO3: true,
-    transports: ['websocket', 'polling'], // Allow both for better compatibility
+    transports: ['websocket', 'polling'],
     pingTimeout: 60000,
     pingInterval: 25000
 });
@@ -50,17 +51,19 @@ const io = new Server(server, {
 app.set('socketio', io);
 
 io.on('connection', (socket) => {
-    console.log(`✅ Admin Socket Connected: ${socket.id}`);
+    console.log(`✅ Socket connected: ${socket.id}`);
 });
 
 // --- 2. CORS & MIDDLEWARE ---
 app.use(cors({ 
-    // ✅ Matches the Socket.io allowed origins
-    origin: [
-        "https://fiesta-casitas-admin.vercel.app", 
-        "https://fiesta-casitas-security.vercel.app",
-        "http://localhost:3000"
-    ], 
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps) or those in our list
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true 
 }));
 
@@ -73,12 +76,7 @@ mongoose.connect(process.env.MONGO_URI, { family: 4 })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// --- 4. EMAIL SERVICE ---
-console.log("🚀 Email service initialized via authController.");
-
-app.get('/', (req, res) => res.send('Backend is running with Socket.io'));
-
-// --- 5. API ROUTES ---
+// --- 4. API ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/audit', auditRoutes); 
