@@ -30,7 +30,21 @@ const upload = multer({ storage: storage });
 router.get('/', protect, async (req, res) => { 
     try {
         const incidents = await Incident.find().sort({ createdAt: -1 });
-        res.status(200).json(incidents); 
+        
+        // ✅ MAP PATHS TO FULL URLS
+        // This ensures the frontend gets a clickable link, not just a folder path
+        const host = req.get('host');
+        const protocol = req.protocol;
+        
+        const formattedIncidents = incidents.map(incident => {
+            const obj = incident.toObject();
+            if (obj.incidentPhoto && !obj.incidentPhoto.startsWith('http')) {
+                obj.incidentPhoto = `${protocol}://${host}/${obj.incidentPhoto}`;
+            }
+            return obj;
+        });
+
+        res.status(200).json(formattedIncidents); 
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -52,6 +66,7 @@ router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
             category: req.body.category,
             description: req.body.description,
             location: req.body.location,
+            // ✅ Store the path with forward slashes for URL compatibility
             incidentPhoto: req.file ? req.file.path.replace(/\\/g, "/") : "", 
             status: 'pending' 
         });
@@ -63,7 +78,7 @@ router.post('/', upload.single('incidentPhoto'), protect, async (req, res) => {
     }
 });
 
-// 3. UPDATE STATUS (Admin side - Fixes the adminName error)
+// 3. UPDATE STATUS
 router.patch('/:id', protect, async (req, res) => {
     try {
         const updated = await Incident.findByIdAndUpdate(
@@ -72,10 +87,7 @@ router.patch('/:id', protect, async (req, res) => {
             { new: true }
         );
 
-        // ✅ CRITICAL FIX: Ensure adminName is never undefined
         if (updated && (req.body.status.toLowerCase() === 'resolved' || req.body.status.toLowerCase() === 'done')) {
-            
-            // This fallback prevents the "Path 'adminName' is required" crash
             const finalAdminName = (req.user && req.user.name) ? req.user.name : "SYSTEM ADMIN";
 
             await Audit.create({

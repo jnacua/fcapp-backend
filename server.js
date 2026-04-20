@@ -19,7 +19,6 @@ const vehicleRoutes = require('./routes/vehicleRoute');
 const paymongoRoutes = require('./routes/paymongoRoutes');
 const dashboardRoutes = require('./routes/dashboardRoute');
 const visitorRoutes = require('./routes/visitorRoute');
-// ✅ 1. Import the New Log Route
 const logRoutes = require('./routes/logRoutes');
 
 const app = express();
@@ -30,9 +29,20 @@ app.set('trust proxy', 1);
 
 // --- 1. SOCKET.IO SETUP ---
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"], credentials: true },
+    cors: { 
+        // ✅ CRITICAL FIX: Explicitly list your Vercel URLs. 
+        // Using "*" often fails with Socket.io on production.
+        origin: [
+            "https://fiesta-casitas-admin.vercel.app", 
+            "https://fiesta-casitas-security.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:5000"
+        ],
+        methods: ["GET", "POST"], 
+        credentials: true 
+    },
     allowEIO3: true,
-    transports: ['websocket', 'polling'],
+    transports: ['websocket', 'polling'], // Allow both for better compatibility
     pingTimeout: 60000,
     pingInterval: 25000
 });
@@ -44,7 +54,16 @@ io.on('connection', (socket) => {
 });
 
 // --- 2. CORS & MIDDLEWARE ---
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({ 
+    // ✅ Matches the Socket.io allowed origins
+    origin: [
+        "https://fiesta-casitas-admin.vercel.app", 
+        "https://fiesta-casitas-security.vercel.app",
+        "http://localhost:3000"
+    ], 
+    credentials: true 
+}));
+
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -72,8 +91,7 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visitor', visitorRoutes);
-// ✅ 2. Mount the Log Route
-app.use('/api/logs', logRoutes);
+app.use('/api/logs', logRoutes); 
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
