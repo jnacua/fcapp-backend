@@ -26,17 +26,20 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ UPDATED MASTER LIST OF ALLOWED ORIGINS
+// ✅ MASTER LIST OF ALLOWED ORIGINS
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
-    "https://fiesta-casitas-security.vercel.app"
+    "https://fiesta-casitas-security.vercel.app",
+    "http://localhost:51310", // Added common Flutter web ports
+    "http://localhost:3000"
 ];
 
 // --- 1. SOCKET.IO SETUP ---
 const io = new Server(server, {
     cors: { 
-        // ✅ Dynamic check for Socket.io
         origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps) 
+            // or those in the allowedOrigins list or any localhost
             if (!origin || 
                 allowedOrigins.indexOf(origin) !== -1 || 
                 origin.startsWith('http://localhost') || 
@@ -50,7 +53,7 @@ const io = new Server(server, {
         credentials: true 
     },
     allowEIO3: true,
-    transports: ['websocket', 'polling'],
+    transports: ['websocket', 'polling'], // Allow fallback
     pingTimeout: 60000,
     pingInterval: 25000
 });
@@ -59,12 +62,15 @@ app.set('socketio', io);
 
 io.on('connection', (socket) => {
     console.log(`✅ Socket connected: ${socket.id}`);
+    
+    socket.on('disconnect', () => {
+        console.log(`❌ Socket disconnected: ${socket.id}`);
+    });
 });
 
 // --- 2. CORS & MIDDLEWARE ---
 app.use(cors({ 
     origin: function (origin, callback) {
-        // ✅ Allow any origin in the list OR any localhost port (Fixes the Flutter Web random port issue)
         if (!origin || 
             allowedOrigins.indexOf(origin) !== -1 || 
             origin.startsWith('http://localhost') || 
@@ -80,6 +86,11 @@ app.use(cors({
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ✅ ADDED: Root route to fix the 404 error seen in your console
+app.get('/', (req, res) => {
+    res.send('🚀 FCAPP Backend is running and healthy!');
+});
 
 // --- 3. DATABASE ---
 mongoose.connect(process.env.MONGO_URI, { family: 4 })
@@ -102,6 +113,8 @@ app.use('/api/visitor', visitorRoutes);
 app.use('/api/logs', logRoutes); 
 
 const PORT = process.env.PORT || 5000;
+
+// ✅ Crucial: listen via 'server', not 'app' to allow Socket.io to work
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
