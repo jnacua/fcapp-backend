@@ -26,11 +26,11 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ MASTER LIST OF ALLOWED ORIGINS - ADD YOUR SECURITY WEB APP HERE
+// ✅ MASTER LIST OF ALLOWED ORIGINS
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
     "https://fiesta-casitas-security.vercel.app",
-    "https://fc-security-web.vercel.app", // ✅ Your security web app
+    "https://fc-security-web.vercel.app",
     "http://localhost:51310", 
     "http://localhost:3000",
     "http://localhost:8080",
@@ -123,7 +123,8 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// ✅ FIXED: Handle preflight requests correctly (THIS SOLVES THE ERROR)
+// ✅ IMPORTANT: DO NOT USE app.options('*', cors()) - it causes the PathError
+// Instead, use this manual handler for preflight requests:
 app.options('*', (req, res) => {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -136,7 +137,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ✅ Health check endpoint with socket status
+// ✅ Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
