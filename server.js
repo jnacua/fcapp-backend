@@ -26,19 +26,26 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ MASTER LIST OF ALLOWED ORIGINS
+// ✅ UPDATED MASTER LIST OF ALLOWED ORIGINS
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
-    "https://fiesta-casitas-security.vercel.app",
-    "http://localhost:3000",
-    "http://localhost:5000",
-    "http://localhost:58739" // ✅ ADDED THIS FROM YOUR SCREENSHOT
+    "https://fiesta-casitas-security.vercel.app"
 ];
 
 // --- 1. SOCKET.IO SETUP ---
 const io = new Server(server, {
     cors: { 
-        origin: allowedOrigins,
+        // ✅ Dynamic check for Socket.io
+        origin: function (origin, callback) {
+            if (!origin || 
+                allowedOrigins.indexOf(origin) !== -1 || 
+                origin.startsWith('http://localhost') || 
+                origin.startsWith('http://127.0.0.1')) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         methods: ["GET", "POST"], 
         credentials: true 
     },
@@ -57,8 +64,11 @@ io.on('connection', (socket) => {
 // --- 2. CORS & MIDDLEWARE ---
 app.use(cors({ 
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps) or those in our list
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        // ✅ Allow any origin in the list OR any localhost port (Fixes the Flutter Web random port issue)
+        if (!origin || 
+            allowedOrigins.indexOf(origin) !== -1 || 
+            origin.startsWith('http://localhost') || 
+            origin.startsWith('http://127.0.0.1')) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
