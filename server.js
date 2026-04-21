@@ -26,15 +26,14 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ MASTER LIST OF ALLOWED ORIGINS - UPDATED with your security web app
+// ✅ MASTER LIST OF ALLOWED ORIGINS
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
     "https://fiesta-casitas-security.vercel.app",
-    "https://fc-security-web.vercel.app", // ✅ Your security web app URL
-    "https://fc-security-web.vercel.app/", // ✅ With trailing slash
+    "https://fc-security-web.vercel.app",
     "http://localhost:51310", 
     "http://localhost:3000",
-    "http://localhost:8080", // Flutter web default
+    "http://localhost:8080",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8080",
 ];
@@ -43,8 +42,6 @@ const allowedOrigins = [
 const io = new Server(server, {
     cors: { 
         origin: function (origin, callback) {
-            // Allow requests with no origin (like mobile apps) 
-            // or those in the allowedOrigins list or any localhost
             if (!origin || 
                 allowedOrigins.indexOf(origin) !== -1 || 
                 origin.startsWith('http://localhost') || 
@@ -65,45 +62,35 @@ const io = new Server(server, {
     pingTimeout: 60000,
     pingInterval: 25000,
     connectTimeout: 45000,
-    // Enable serving of client files
     serveClient: false,
-    // Handle preflight requests
     handlePreflightRequest: true,
 });
 
-// Make io accessible to routes
 app.set('socketio', io);
 
-// Store connected sockets for broadcast
 const connectedSockets = new Map();
 
 io.on('connection', (socket) => {
     console.log(`✅ Socket connected: ${socket.id}`);
     
-    // Store socket with additional info
     connectedSockets.set(socket.id, {
         id: socket.id,
         connectedAt: new Date(),
         userAgent: socket.handshake.headers['user-agent']
     });
     
-    // Join room based on user role (if provided)
     socket.on('join', (room) => {
         socket.join(room);
         console.log(`📌 Socket ${socket.id} joined room: ${room}`);
     });
     
-    // Handle emergency alerts
     socket.on('emergency-alert', (data) => {
         console.log(`🚨 Emergency alert received from ${socket.id}:`, data);
-        // Broadcast to all connected clients except sender
         socket.broadcast.emit('emergency-alert', data);
     });
     
-    // Handle panic alerts
     socket.on('panic-alert', (data) => {
         console.log(`🆘 Panic alert received:`, data);
-        // Broadcast to all connected clients
         io.emit('emergency-alert', data);
     });
     
@@ -136,8 +123,14 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Handle preflight requests
-app.options('*', cors());
+// ✅ FIXED: Handle preflight requests correctly
+app.options('*', (req, res) => {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(200);
+});
 
 app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); 
