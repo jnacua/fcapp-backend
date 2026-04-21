@@ -28,8 +28,22 @@ router.get('/my-alerts', auth.protect, async (req, res) => {
     }
 });
 
-// ✅ 2. GET LATEST ACTIVE ALERT (For Security Dashboard Fallback)
-router.get('/latest', async (req, res) => {
+// ✅ 2. GET ACTIVE ALERTS (For Security Dashboard and Polling)
+router.get('/active', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
+    try {
+        const activeAlerts = await PanicAlert.find({ status: 'Pending' })
+            .sort({ createdAt: -1 });
+        
+        console.log(`📡 Sending ${activeAlerts.length} active alerts`);
+        res.status(200).json(activeAlerts);
+    } catch (err) {
+        console.error("Active alerts error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ 3. GET LATEST ACTIVE ALERT (For Security Dashboard Fallback)
+router.get('/latest', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         // Finds the most recent unresolved alert
         const latestPanic = await PanicAlert.findOne({ status: 'Pending' }).sort({ createdAt: -1 });
@@ -40,7 +54,7 @@ router.get('/latest', async (req, res) => {
     }
 });
 
-// ✅ 3. SEND PANIC ALERT (Resident)
+// ✅ 4. SEND PANIC ALERT (Resident)
 router.post('/send', auth.protect, async (req, res) => {
     try {
         const { latitude, longitude, residentName, houseNo } = req.body;
@@ -57,24 +71,32 @@ router.post('/send', auth.protect, async (req, res) => {
 
         const io = req.app.get('socketio');
         if (io) {
-            // 1. THIS EMIT KEEPS YOUR ADMIN SIDE WORKING
-            io.emit('new-panic-alert', {
-                _id: newAlert._id,
-                userName: residentName,
+            // Prepare the alert data
+            const alertData = {
+                id: newAlert._id,
+                name: residentName,
                 blockLot: houseNo,
                 latitude: latitude,
                 longitude: longitude,
-                status: 'Pending'
-            });
+                status: 'Pending',
+                timestamp: newAlert.createdAt
+            };
 
-            // 2. ✅ THIS EMIT TRIGGERS THE SECURITY GUARD POP-UP
+            // 1. EMIT for Admin Dashboard (list view)
+            io.emit('new-panic-alert', alertData);
+
+            // 2. EMIT for Security Guard POP-UP (emergency alert)
             io.emit('emergency-alert', {
+                id: newAlert._id,
                 name: residentName,
                 blockLot: houseNo,
-                status: 'ACTIVE'
+                latitude: latitude,
+                longitude: longitude,
+                status: 'ACTIVE',
+                timestamp: newAlert.createdAt
             });
 
-            console.log("🚨 Emergency Alert Broadcasted to Admin and Security!");
+            console.log(`🚨 Emergency Alert Broadcasted to ${io.engine.clientsCount} clients!`);
         }
 
         res.status(201).json({ 
@@ -88,8 +110,7 @@ router.post('/send', auth.protect, async (req, res) => {
     }
 });
 
-// ✅ 4. RESOLVE PANIC ALERT (Admin & Security)
-// ✅ UPDATED: Added 'SECURITY' to restrictTo so guards can actually click the resolve button.
+// ✅ 5. RESOLVE PANIC ALERT (Admin & Security)
 router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         const updatedAlert = await PanicAlert.findByIdAndUpdate(
@@ -98,13 +119,36 @@ router.patch('/resolve/:id', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'),
             { new: true }
         );
 
+        if (!updatedAlert) {
+            return res.status(404).json({ error: "Panic alert not found" });
+        }
+
         const io = req.app.get('socketio');
         if (io) {
-            // ✅ Tells the Security Dashboard to close the red pop-up
-            io.emit('panic-resolved', { _id: req.params.id }); 
+            // Tell all clients that this panic was resolved
+            io.emit('panic-resolved', { 
+                id: req.params.id,
+                status: 'Resolved'
+            });
+            
+            console.log(`✅ Panic ${req.params.id} resolved and broadcasted`);
         }
 
         res.status(200).json(updatedAlert);
+    } catch (err) {
+        console.error("Resolve panic error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ 6. GET SINGLE PANIC ALERT
+router.get('/:id', auth.protect, async (req, res) => {
+    try {
+        const alert = await PanicAlert.findById(req.params.id);
+        if (!alert) {
+            return res.status(404).json({ error: "Alert not found" });
+        }
+        res.status(200).json(alert);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
