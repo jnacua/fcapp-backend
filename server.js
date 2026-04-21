@@ -38,7 +38,7 @@ const allowedOrigins = [
     "http://127.0.0.1:8080",
 ];
 
-// ✅ CORS MIDDLEWARE - THIS HANDLES EVERYTHING
+// ✅ FIXED CORS MIDDLEWARE - Added PATCH method
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
@@ -49,7 +49,7 @@ app.use(cors({
         }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // ✅ PATCH added
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
@@ -138,4 +138,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`✅ CORS enabled for ${allowedOrigins.length} origins`);
+    console.log(`✅ Allowed methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`);
 });
