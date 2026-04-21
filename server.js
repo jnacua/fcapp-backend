@@ -26,11 +26,11 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ MASTER LIST OF ALLOWED ORIGINS
+// ✅ MASTER LIST OF ALLOWED ORIGINS - ADD YOUR SECURITY WEB APP HERE
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
     "https://fiesta-casitas-security.vercel.app",
-    "https://fc-security-web.vercel.app",
+    "https://fc-security-web.vercel.app", // ✅ Your security web app
     "http://localhost:51310", 
     "http://localhost:3000",
     "http://localhost:8080",
@@ -123,7 +123,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// ✅ FIXED: Handle preflight requests correctly
+// ✅ FIXED: Handle preflight requests correctly (THIS SOLVES THE ERROR)
 app.options('*', (req, res) => {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
