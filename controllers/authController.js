@@ -61,9 +61,33 @@ exports.register = async (req, res) => {
       email, password: hashedPassword, role: role || 'resident',
       name, mobileNumber, blockLot, status: 'pending' 
     });
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({ message: 'Registered successfully', user, token });
+    
+    // ✅ FIX: Include role in token with consistent field name
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        userId: user._id,  // For compatibility with both middleware versions
+        role: user.role,
+        email: user.email,
+        name: user.name
+      }, 
+      JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
+    
+    res.status(201).json({ 
+      message: 'Registered successfully', 
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.status
+      }, 
+      token 
+    });
   } catch (err) {
+    console.error("Register error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -74,13 +98,51 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    
     const dbStatus = user.status ? user.status.toLowerCase() : 'pending';
-    if (dbStatus === 'pending') return res.status(403).json({ message: "Wait for admin approval" });
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ message: 'Login successful', token, user });
+    if (dbStatus === 'pending') {
+      return res.status(403).json({ message: "Wait for admin approval" });
+    }
+    if (dbStatus === 'rejected') {
+      return res.status(403).json({ message: "Account rejected. Contact admin." });
+    }
+    
+    // ✅ FIX: Include role in token with consistent field names
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        userId: user._id,  // For compatibility
+        role: user.role,
+        email: user.email,
+        name: user.name
+      }, 
+      JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
+    
+    // ✅ Return user data without password
+    const userData = {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      type: user.type,
+      status: user.status,
+      mobileNumber: user.mobileNumber,
+      blockLot: user.blockLot,
+      profileImage: user.profileImage
+    };
+    
+    res.json({ 
+      message: 'Login successful', 
+      token, 
+      user: userData 
+    });
   } catch (err) {
+    console.error("Login error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -126,6 +188,7 @@ exports.forgotPassword = async (req, res) => {
 
     res.status(200).json({ message: "OTP generated successfully." });
   } catch (err) {
+    console.error("Forgot password error:", err);
     res.status(500).json({ message: "Error processing request." });
   }
 };
@@ -142,6 +205,7 @@ exports.verifyOTP = async (req, res) => {
     if (!user) return res.status(400).json({ message: "Invalid or expired OTP." });
     res.status(200).json({ message: "OTP verified." });
   } catch (err) {
+    console.error("Verify OTP error:", err);
     res.status(500).json({ message: "Verification error." });
   }
 };
@@ -162,6 +226,7 @@ exports.resetPassword = async (req, res) => {
     await user.save();
     res.status(200).json({ message: "Password updated successfully." });
   } catch (err) {
+    console.error("Reset password error:", err);
     res.status(500).json({ message: "Reset error." });
   }
 };
@@ -172,6 +237,7 @@ exports.getAllUsers = async (req, res) => {
     const users = await User.find({}).select('-password');
     res.status(200).json(users);
   } catch (err) {
+    console.error("Get all users error:", err);
     res.status(500).json({ message: 'Error fetching users' });
   }
 };
@@ -179,21 +245,52 @@ exports.getAllUsers = async (req, res) => {
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const user = await User.findByIdAndUpdate(req.params.id, { status: status }, { new: true });
+    const user = await User.findByIdAndUpdate(
+      req.params.id, 
+      { status: status }, 
+      { new: true }
+    ).select('-password');
+    
     if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Send email notification
     sendStatusEmail(user.email, user.name, status);
-    res.status(200).json({ message: `Status updated`, user });
+    
+    res.status(200).json({ 
+      message: `Status updated to ${status}`, 
+      user 
+    });
   } catch (err) {
+    console.error("Update status error:", err);
     res.status(500).json({ message: 'Update failed' });
   }
 };
 
+// ✅ FIX: Get current user profile (works with protect middleware)
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password'); 
+    // req.user.id is set by protect middleware
+    const userId = req.user.id || req.user.userId;
+    const user = await User.findById(userId).select('-password'); 
+    
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        type: user.type,
+        status: user.status,
+        mobileNumber: user.mobileNumber,
+        blockLot: user.blockLot,
+        profileImage: user.profileImage
+      }
+    });
   } catch (err) {
+    console.error("Get me error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -202,9 +299,63 @@ exports.updateProfilePicture = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No image provided" });
     const imageUrl = req.file.path;
-    await User.findByIdAndUpdate(req.user.id, { profileImage: imageUrl }, { new: true });
-    res.status(200).json({ message: "Success", profileImageUrl: imageUrl });
+    
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id, 
+      { profileImage: imageUrl }, 
+      { new: true }
+    ).select('-password');
+    
+    res.status(200).json({ 
+      message: "Profile picture updated successfully", 
+      profileImageUrl: imageUrl,
+      user: updatedUser
+    });
   } catch (error) {
+    console.error("Profile picture error:", error);
     res.status(500).json({ error: "Upload failed" });
+  }
+};
+
+// ================= ADDITIONAL HELPER FUNCTIONS =================
+
+// Update user role (admin only)
+exports.updateUserRole = async (req, res) => {
+  try {
+    const { role } = req.body;
+    const allowedRoles = ['resident', 'admin', 'president', 'security', 'officer'];
+    
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { role: role },
+      { new: true }
+    ).select('-password');
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    res.status(200).json({ 
+      message: `User role updated to ${role}`, 
+      user 
+    });
+  } catch (err) {
+    console.error("Update role error:", err);
+    res.status(500).json({ message: 'Update failed' });
+  }
+};
+
+// Delete user (admin only)
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    res.status(200).json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error("Delete user error:", err);
+    res.status(500).json({ message: 'Delete failed' });
   }
 };
