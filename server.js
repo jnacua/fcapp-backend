@@ -26,7 +26,7 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// ✅ MASTER LIST OF ALLOWED ORIGINS
+// ✅ ALLOWED ORIGINS
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
     "https://fiesta-casitas-security.vercel.app",
@@ -38,83 +38,13 @@ const allowedOrigins = [
     "http://127.0.0.1:8080",
 ];
 
-// --- 1. SOCKET.IO SETUP ---
-const io = new Server(server, {
-    cors: { 
-        origin: function (origin, callback) {
-            if (!origin || 
-                allowedOrigins.indexOf(origin) !== -1 || 
-                origin.startsWith('http://localhost') || 
-                origin.startsWith('http://127.0.0.1') ||
-                origin.startsWith('https://fc-security-web.vercel.app')) {
-                callback(null, true);
-            } else {
-                console.log(`❌ CORS blocked: ${origin}`);
-                callback(new Error('Not allowed by CORS'));
-            }
-        },
-        methods: ["GET", "POST", "OPTIONS"], 
-        credentials: true,
-        allowedHeaders: ["Authorization", "Content-Type", "X-Requested-With"]
-    },
-    allowEIO3: true,
-    transports: ['websocket', 'polling'], 
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    connectTimeout: 45000,
-    serveClient: false,
-    handlePreflightRequest: true,
-});
-
-app.set('socketio', io);
-
-const connectedSockets = new Map();
-
-io.on('connection', (socket) => {
-    console.log(`✅ Socket connected: ${socket.id}`);
-    
-    connectedSockets.set(socket.id, {
-        id: socket.id,
-        connectedAt: new Date(),
-        userAgent: socket.handshake.headers['user-agent']
-    });
-    
-    socket.on('join', (room) => {
-        socket.join(room);
-        console.log(`📌 Socket ${socket.id} joined room: ${room}`);
-    });
-    
-    socket.on('emergency-alert', (data) => {
-        console.log(`🚨 Emergency alert received from ${socket.id}:`, data);
-        socket.broadcast.emit('emergency-alert', data);
-    });
-    
-    socket.on('panic-alert', (data) => {
-        console.log(`🆘 Panic alert received:`, data);
-        io.emit('emergency-alert', data);
-    });
-    
-    socket.on('disconnect', () => {
-        console.log(`❌ Socket disconnected: ${socket.id}`);
-        connectedSockets.delete(socket.id);
-    });
-    
-    socket.on('error', (err) => {
-        console.error(`⚠️ Socket error for ${socket.id}:`, err);
-    });
-});
-
-// --- 2. CORS & MIDDLEWARE ---
-app.use(cors({ 
+// ✅ CORS MIDDLEWARE - THIS HANDLES EVERYTHING
+app.use(cors({
     origin: function (origin, callback) {
-        if (!origin || 
-            allowedOrigins.indexOf(origin) !== -1 || 
-            origin.startsWith('http://localhost') || 
-            origin.startsWith('http://127.0.0.1') ||
-            origin.startsWith('https://fc-security-web.vercel.app')) {
+        if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
             callback(null, true);
         } else {
-            console.log(`❌ CORS blocked request from: ${origin}`);
+            console.log(`❌ CORS blocked: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -123,92 +53,89 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// ✅ IMPORTANT: DO NOT USE app.options('*', cors()) - it causes the PathError
-// Instead, use this manual handler for preflight requests:
-app.options('*', (req, res) => {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.sendStatus(200);
+// ✅ SOCKET.IO SETUP
+const io = new Server(server, {
+    cors: {
+        origin: function (origin, callback) {
+            if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    transports: ['websocket', 'polling'],
 });
 
-app.use(express.json({ limit: '50mb' })); 
-app.use(express.urlencoded({ extended: true, limit: '50mb' })); 
+app.set('socketio', io);
+
+const connectedSockets = new Map();
+
+io.on('connection', (socket) => {
+    console.log(`✅ Socket connected: ${socket.id}`);
+    connectedSockets.set(socket.id, { id: socket.id, connectedAt: new Date() });
+    
+    socket.on('emergency-alert', (data) => {
+        console.log(`🚨 Emergency alert:`, data);
+        io.emit('emergency-alert', data);
+    });
+    
+    socket.on('disconnect', () => {
+        console.log(`❌ Socket disconnected: ${socket.id}`);
+        connectedSockets.delete(socket.id);
+    });
+});
+
+// ✅ MIDDLEWARE
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ✅ Health check endpoint
+// ✅ ROUTES
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        socketConnections: connectedSockets.size,
-        allowedOrigins: allowedOrigins,
-        timestamp: new Date(),
-        uptime: process.uptime()
-    });
+    res.json({ status: 'ok', socketConnections: connectedSockets.size });
 });
 
-// ✅ Root route
 app.get('/', (req, res) => {
-    res.json({
-        message: '🚀 FCAPP Backend is running and healthy!',
-        socketStatus: {
-            connections: connectedSockets.size,
-            active: true
-        },
-        endpoints: {
-            health: '/health',
-            api: '/api/*'
-        }
-    });
+    res.json({ message: '🚀 FCAPP Backend is running!' });
 });
 
-// --- 3. DATABASE ---
-mongoose.connect(process.env.MONGO_URI, { 
-    family: 4,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-})
-.then(() => console.log('✅ MongoDB connected'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
-
-// --- 4. API ROUTES ---
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
-app.use('/api/audit', auditRoutes); 
+app.use('/api/audit', auditRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/incidents', incidentRoutes);
-app.use('/api/facilities', facilityRoutes); 
+app.use('/api/facilities', facilityRoutes);
 app.use('/api/forum', forumRoutes);
 app.use('/api/panic', panicRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visitor', visitorRoutes);
-app.use('/api/logs', logRoutes); 
+app.use('/api/logs', logRoutes);
 
-// ✅ 404 handler
-app.use('*', (req, res) => {
-    res.status(404).json({ 
-        error: 'Route not found',
-        path: req.originalUrl 
-    });
+// ✅ 404 Handler
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found', path: req.originalUrl });
 });
 
-// ✅ Global error handler
+// ✅ Error Handler
 app.use((err, req, res, next) => {
-    console.error('❌ Global error:', err);
-    res.status(500).json({ 
-        error: 'Internal server error',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
+    console.error('❌ Error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
 });
 
-const PORT = process.env.PORT || 5000;
+// ✅ DATABASE CONNECTION
+mongoose.connect(process.env.MONGO_URI, { family: 4 })
+    .then(() => console.log('✅ MongoDB connected'))
+    .catch(err => console.error('❌ MongoDB error:', err));
 
+// ✅ START SERVER
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`✅ Allowed CORS origins:`);
-    allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
-    console.log(`📡 Socket.io ready for connections`);
+    console.log(`✅ CORS enabled for ${allowedOrigins.length} origins`);
 });
