@@ -101,15 +101,18 @@ router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 // ------------------------------------------------------------
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const statusValue = req.body.status;
+        const { status, reason } = req.body; // ✅ Capture reason from admin panel
 
-        if (!statusValue) {
+        if (!status) {
             return res.status(400).json({ error: "No status provided." });
         }
 
         const updatedBooking = await Booking.findByIdAndUpdate(
             req.params.id,
-            { status: statusValue.toUpperCase() }, 
+            { 
+                status: status.toUpperCase(),
+                reason: reason || "" // ✅ Save the reason provided by admin
+            }, 
             { new: true, runValidators: true }
         );
 

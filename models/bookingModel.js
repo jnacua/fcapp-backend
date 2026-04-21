@@ -25,6 +25,10 @@ const bookingSchema = new mongoose.Schema({
     type: String, 
     required: true // e.g., "08:00 AM - 10:00 AM"
   },
+  fee: { 
+    type: Number, 
+    default: 0 
+  }, // ✅ ADDED: To store the calculated rate/payment amount
   status: { 
     type: String, 
     // ✅ UPDATED: Added Uppercase versions to match Flutter Admin inputs
@@ -34,6 +38,10 @@ const bookingSchema = new mongoose.Schema({
     ], 
     default: 'PENDING' 
   },
+  reason: { 
+    type: String, 
+    default: "" 
+  }, // ✅ ADDED: To store the Rejection/Cancellation reason from Admin
   proofOfPayment: { 
     type: String, 
     default: "" // URL to the GCash screenshot
