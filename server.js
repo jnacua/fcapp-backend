@@ -30,7 +30,8 @@ app.set('trust proxy', 1);
 const allowedOrigins = [
     "https://fiesta-casitas-admin.vercel.app",
     "https://fiesta-casitas-security.vercel.app",
-    "http://localhost:51310", // Added common Flutter web ports
+    "https://fc-security-web.vercel.app", // ✨ Added your current live security web URL
+    "http://localhost:51310", 
     "http://localhost:3000"
 ];
 
@@ -53,7 +54,7 @@ const io = new Server(server, {
         credentials: true 
     },
     allowEIO3: true,
-    transports: ['websocket', 'polling'], // Allow fallback
+    transports: ['websocket', 'polling'], 
     pingTimeout: 60000,
     pingInterval: 25000
 });
@@ -87,7 +88,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ✅ ADDED: Root route to fix the 404 error seen in your console
+// ✅ Root route
 app.get('/', (req, res) => {
     res.send('🚀 FCAPP Backend is running and healthy!');
 });
@@ -114,7 +115,6 @@ app.use('/api/logs', logRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-// ✅ Crucial: listen via 'server', not 'app' to allow Socket.io to work
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
