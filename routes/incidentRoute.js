@@ -7,18 +7,18 @@ const Incident = require('../models/incidentModel');
 const Audit = require('../models/auditModel');
 const { protect } = require('../middleware/authMiddleware');
 
-// ✅ CLOUDINARY CONFIG (put your credentials in .env)
+// ✅ CLOUDINARY CONFIG
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ✅ MULTER-CLOUDINARY STORAGE (no local disk needed)
+// ✅ MULTER-CLOUDINARY STORAGE
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'incidents',           // folder name in your Cloudinary account
+    folder: 'incidents',
     allowed_formats: ['jpg', 'jpeg', 'png'],
     transformation: [{ width: 1024, quality: 'auto', fetch_format: 'auto' }],
     public_id: (req, file) => {
@@ -30,7 +30,7 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png/;
     const isValid = allowed.test(file.mimetype);
@@ -48,7 +48,6 @@ const upload = multer({
 router.get('/', protect, async (req, res) => {
   try {
     const incidents = await Incident.find().sort({ createdAt: -1 });
-    // ✅ Cloudinary already returns full HTTPS URLs — no mapping needed
     res.status(200).json(incidents);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -60,24 +59,31 @@ router.get('/', protect, async (req, res) => {
 // ─────────────────────────────────────────
 router.post(
   '/',
-  protect,                          // ✅ Auth runs FIRST now
-  upload.single('incidentPhoto'),   // ✅ Then multer
+  protect,
+  upload.single('incidentPhoto'),
   async (req, res) => {
     try {
-      // ✅ req.user is now guaranteed available from protect middleware
-      const userId = req.body.userId || req.user._id;
-      const userName = req.body.userName || req.user.name || 'Resident';
+      // ✅ DEBUG LOGS — check your server terminal after submitting
+      console.log("📥 BODY:", req.body);
+      console.log("📸 FILE:", req.file);
+      console.log("👤 USER:", req.user);
+      console.log("🔑 CLOUDINARY ENV CHECK:", {
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? "✅ SET" : "❌ MISSING",
+        api_key: process.env.CLOUDINARY_API_KEY ? "✅ SET" : "❌ MISSING",
+        api_secret: process.env.CLOUDINARY_API_SECRET ? "✅ SET" : "❌ MISSING",
+      });
+
+      const userId = req.body.userId || req.user?._id;
+      const userName = req.body.userName || req.user?.name || 'Resident';
 
       if (!userId) {
         return res.status(400).json({ error: 'userId is required to file a report.' });
       }
 
-      // ✅ Validate required fields
       if (!req.body.category || !req.body.description || !req.body.location) {
         return res.status(400).json({ error: 'Category, description, and location are required.' });
       }
 
-      // ✅ req.file.path from Cloudinary is already a full HTTPS URL
       const incidentPhotoUrl = req.file ? req.file.path : '';
 
       const newIncident = await Incident.create({
@@ -91,9 +97,11 @@ router.post(
       });
 
       res.status(201).json(newIncident);
+
     } catch (err) {
-      console.error('❌ Incident Error:', err.message);
-      res.status(400).json({ error: err.message });
+      // ✅ FULL ERROR — shows exact crash reason + where it happened
+      console.error('❌ FULL INCIDENT ERROR:', err);
+      res.status(500).json({ error: err.message, stack: err.stack });
     }
   }
 );
