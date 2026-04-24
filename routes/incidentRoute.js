@@ -19,7 +19,7 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'incidents',
-    allowed_formats: ['jpg', 'jpeg', 'png'],
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'heic'],  // ✅ Added webp & heic for mobile
     transformation: [{ width: 1024, quality: 'auto', fetch_format: 'auto' }],
     public_id: (req, file) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -31,13 +31,26 @@ const storage = new CloudinaryStorage({
 const upload = multer({
   storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 },
+  // ✅ FIXED: Properly check mimetype for mobile-uploaded images
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png/;
-    const isValid = allowed.test(file.mimetype);
-    if (isValid) {
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'image/heic',   // ✅ iPhone default format
+      'image/heif',   // ✅ iPhone alternative format
+    ];
+
+    const allowedExtensions = /\.(jpg|jpeg|png|webp|heic|heif)$/i;
+    const mimeValid = allowedMimeTypes.includes(file.mimetype);
+    const extValid = allowedExtensions.test(file.originalname);
+
+    if (mimeValid || extValid) {  // ✅ OR instead of AND — mobile sometimes sends mismatched mime/ext
       cb(null, true);
     } else {
-      cb(new Error('Only JPG and PNG images are allowed'));
+      console.log("❌ REJECTED FILE:", file.mimetype, file.originalname);
+      cb(new Error(`Invalid file type. Got: ${file.mimetype}. Only JPG, PNG, WEBP are allowed.`));
     }
   },
 });
@@ -63,7 +76,6 @@ router.post(
   upload.single('incidentPhoto'),
   async (req, res) => {
     try {
-      // ✅ DEBUG LOGS — check your server terminal after submitting
       console.log("📥 BODY:", req.body);
       console.log("📸 FILE:", req.file);
       console.log("👤 USER:", req.user);
@@ -99,7 +111,6 @@ router.post(
       res.status(201).json(newIncident);
 
     } catch (err) {
-      // ✅ FULL ERROR — shows exact crash reason + where it happened
       console.error('❌ FULL INCIDENT ERROR:', err);
       res.status(500).json({ error: err.message, stack: err.stack });
     }
