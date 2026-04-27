@@ -40,8 +40,7 @@ function formatDetails(log, type) {
         return details;
     } else if (type === 'PANIC') {
         const name = log.residentName || log.name || 'Unknown Resident';
-        // Try multiple possible location fields
-        const location = log.blockLot || log.houseNo || log.userId?.blockLot || 'Unknown Location';
+        const location = log.blockLot || log.houseNo || 'Unknown Location';
         const emergencyType = log.emergencyType ? ` [${log.emergencyType}]` : '';
         return `${name} - Location: ${location}${emergencyType}`;
     } else if (type === 'VEHICLE_SCAN') {
@@ -83,18 +82,21 @@ router.post('/vehicle-scan', async (req, res) => {
     }
 });
 
-// ✅ 2. Get Statistics for Dashboard Cards
+// ✅ 2. Get Statistics for Dashboard Cards - FIXED to return TOTAL panics
 router.get('/security-stats', async (req, res) => {
     try {
         console.log("📊 Fetching security stats...");
         
-        // Count visitors
-        const visitorCount = await Visitor.countDocuments();
+        // Count total visitors
+        const totalVisitors = await Visitor.countDocuments();
         
-        // Count active panics (Pending status)
+        // Count ACTIVE panics (Pending status)
         const activePanicCount = await Panic.countDocuments({ status: 'Pending' });
         
-        // Count total panics
+        // Count RESOLVED panics
+        const resolvedPanicCount = await Panic.countDocuments({ status: 'Resolved' });
+        
+        // ✅ Count TOTAL panics (ALL - both pending and resolved)
         const totalPanicCount = await Panic.countDocuments();
         
         // Count vehicle scans from memory
@@ -109,22 +111,38 @@ router.get('/security-stats', async (req, res) => {
         const visitorsToday = await Visitor.countDocuments({
             entryTime: { $gte: today, $lt: tomorrow }
         });
+        
+        // Get today's vehicle scans
+        const vehicleScansToday = vehicleScanLogs.filter(v => {
+            const scanTime = new Date(v.timestamp || v.createdAt);
+            return scanTime >= today && scanTime < tomorrow;
+        }).length;
 
-        console.log(`📊 Stats: Visitors(${visitorCount}) | Visitors Today(${visitorsToday}) | Active Panics(${activePanicCount}) | Total Panics(${totalPanicCount}) | Vehicle Scans(${vehicleScanCount})`);
+        console.log(`📊 STATS SUMMARY:`);
+        console.log(`   - Total Visitors: ${totalVisitors}`);
+        console.log(`   - Visitors Today: ${visitorsToday}`);
+        console.log(`   - Active Panics (Pending): ${activePanicCount}`);
+        console.log(`   - Resolved Panics: ${resolvedPanicCount}`);
+        console.log(`   - ✅ TOTAL PANICS (All Time): ${totalPanicCount}`);
+        console.log(`   - Total Vehicle Scans: ${vehicleScanCount}`);
+        console.log(`   - Vehicle Scans Today: ${vehicleScansToday}`);
 
         res.json({
-            visitors: visitorCount,
+            visitors: totalVisitors,
             visitorsToday: visitorsToday,
-            panics: activePanicCount,
-            totalPanics: totalPanicCount,
+            activePanics: activePanicCount,      // Active panics for alerts
+            resolvedPanics: resolvedPanicCount,  // Resolved panics
+            panics: totalPanicCount,             // ✅ TOTAL panics (for dashboard display)
+            totalPanics: totalPanicCount,        // Same as above
             vehicleScans: vehicleScanCount,
+            vehicleScansToday: vehicleScansToday,
             incoming: 0,
             outgoing: 0
         });
     } catch (err) {
         console.error("❌ Stats Route Error:", err.message);
         console.error("Stack:", err.stack);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, visitors: 0, panics: 0 });
     }
 });
 
@@ -153,7 +171,7 @@ router.get('/all', async (req, res) => {
             hostName: v.residentToVisit || 'Unknown'
         }));
         
-        // Get panic alerts - use the correct model name
+        // Get panic alerts
         console.log("📊 Fetching panic alerts...");
         const panics = await Panic.find()
             .sort({ createdAt: -1 })
@@ -161,7 +179,6 @@ router.get('/all', async (req, res) => {
         
         console.log(`📊 Found ${panics.length} panic logs`);
         
-        // Log first panic for debugging
         if (panics.length > 0) {
             console.log("📊 Sample panic:", {
                 id: panics[0]._id,
@@ -221,7 +238,7 @@ router.get('/all', async (req, res) => {
     }
 });
 
-// ✅ 4. GET active panic alerts only
+// ✅ 4. GET active panic alerts only (for notifications)
 router.get('/panic/active', async (req, res) => {
     try {
         const activePanics = await Panic.find({ status: 'Pending' })
@@ -249,7 +266,27 @@ router.get('/panic/active', async (req, res) => {
     }
 });
 
-// ✅ 5. GET vehicle scan logs only
+// ✅ 5. GET TOTAL panic count endpoint
+router.get('/panic/total', async (req, res) => {
+    try {
+        const totalPanics = await Panic.countDocuments();
+        const pendingPanics = await Panic.countDocuments({ status: 'Pending' });
+        const resolvedPanics = await Panic.countDocuments({ status: 'Resolved' });
+        
+        console.log(`📊 Total Panics: ${totalPanics} (Pending: ${pendingPanics}, Resolved: ${resolvedPanics})`);
+        
+        res.json({
+            total: totalPanics,
+            pending: pendingPanics,
+            resolved: resolvedPanics
+        });
+    } catch (err) {
+        console.error("❌ Total Panics Error:", err.message);
+        res.status(500).json({ error: err.message, total: 0 });
+    }
+});
+
+// ✅ 6. GET vehicle scan logs only
 router.get('/vehicle-scans', async (req, res) => {
     try {
         res.json(vehicleScanLogs);
@@ -259,7 +296,7 @@ router.get('/vehicle-scans', async (req, res) => {
     }
 });
 
-// ✅ 6. GET recent logs (last 24 hours)
+// ✅ 7. GET recent logs (last 24 hours)
 router.get('/recent', async (req, res) => {
     try {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -309,7 +346,7 @@ router.get('/recent', async (req, res) => {
     }
 });
 
-// ✅ 7. Debug endpoint to check panic collection
+// ✅ 8. Debug endpoint to check panic collection
 router.get('/debug/panics', async (req, res) => {
     try {
         const allPanics = await Panic.find().sort({ createdAt: -1 });
