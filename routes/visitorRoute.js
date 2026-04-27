@@ -1,22 +1,32 @@
 const express = require('express');
 const router = express.Router();
-// ✅ Ensure you have a Visitor model created in your models folder
 const VisitorLog = require('../models/visitorModel'); 
 const auth = require('../middleware/authMiddleware');
 
-// ✅ POST: Save a new visitor entry
+// Helper function to format timestamp
+function _formatTimestamp(date) {
+    if (!date) return '--:-- --';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    let hour = date.getHours();
+    const minute = date.getMinutes().toString().padStart(2, '0');
+    const period = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} - ${hour}:${minute} ${period}`;
+}
+
+// POST: Save a new visitor entry
 router.post('/log-entry', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         const { name, purpose, hostName, plateNumber, timestamp } = req.body;
         
-        // ✅ Use provided timestamp or create new one
         const entryTime = timestamp ? new Date(timestamp) : new Date();
 
         const newLog = new VisitorLog({
             visitorName: name,
             purpose: purpose || 'Visit',
             residentToVisit: hostName,
-            plateNumber: plateNumber || 'N/A', // ✅ Add plate number field
+            plateNumber: plateNumber || 'N/A',
             recordedBy: req.user.id,
             recordedByName: req.user.name || 'Security',
             entryTime: entryTime,
@@ -28,7 +38,6 @@ router.post('/log-entry', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), as
         
         console.log(`✅ Visitor logged: ${name} at ${entryTime.toISOString()}`);
         
-        // ✅ Return the saved log with formatted timestamp
         res.status(201).json({ 
             success: true, 
             message: "Visitor entry saved to database!",
@@ -49,14 +58,13 @@ router.post('/log-entry', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), as
     }
 });
 
-// ✅ GET: All visitor logs (for admin/security)
+// GET: All visitor logs
 router.get('/all', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         const logs = await VisitorLog.find()
-            .sort({ entryTime: -1 }) // Newest first
-            .populate('recordedBy', 'name email');
+            .sort({ entryTime: -1 })
+            .limit(100);
         
-        // Format the logs for frontend display
         const formattedLogs = logs.map(log => ({
             id: log._id,
             type: 'VISITOR',
@@ -65,7 +73,7 @@ router.get('/all', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (re
             hostName: log.residentToVisit,
             plateNumber: log.plateNumber || 'N/A',
             status: log.status || 'COMPLETED',
-            timestamp: log.entryTime.toISOString(),
+            timestamp: log.entryTime,
             formattedTime: _formatTimestamp(log.entryTime),
             recordedBy: log.recordedByName || 'Security'
         }));
@@ -77,7 +85,7 @@ router.get('/all', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (re
     }
 });
 
-// ✅ GET: Recent visitor logs (last 24 hours)
+// GET: Recent visitor logs (last 24 hours)
 router.get('/recent', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async (req, res) => {
     try {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -92,7 +100,7 @@ router.get('/recent', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async 
             purpose: log.purpose,
             hostName: log.residentToVisit,
             plateNumber: log.plateNumber || 'N/A',
-            timestamp: log.entryTime.toISOString(),
+            timestamp: log.entryTime,
             formattedTime: _formatTimestamp(log.entryTime)
         }));
         
@@ -102,16 +110,5 @@ router.get('/recent', auth.protect, auth.restrictTo('ADMIN', 'SECURITY'), async 
         res.status(500).json({ success: false, error: err.message });
     }
 });
-
-// ✅ Helper function to format timestamp for display
-function _formatTimestamp(date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    let hour = date.getHours();
-    const minute = date.getMinutes().toString().padStart(2, '0');
-    const period = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12;
-    if (hour === 0) hour = 12;
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} - ${hour}:${minute} ${period}`;
-}
 
 module.exports = router;
