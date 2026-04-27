@@ -6,69 +6,24 @@ const Panic = require('../models/panicModel');     // Make sure this matches you
 // In-memory storage for vehicle scans (no database model needed)
 let vehicleScanLogs = [];
 
-// ✅ IMPROVED Helper function to format timestamp for display (handles malformed dates)
+// ✅ FIXED: Helper function to format timestamp for Philippine Time (UTC+8)
 function formatTimestamp(date) {
     if (!date) return '--:-- --';
     try {
-        // If it's already a string, try to clean it
-        let dateString = date;
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return '--:-- --';
         
-        // Handle malformed timestamps like "2024/04/01:01:83Z"
-        if (typeof dateString === 'string') {
-            // Fix invalid minutes ( > 59 )
-            dateString = dateString.replace(/:(\d{2})Z?/g, (match, minutes) => {
-                let mins = parseInt(minutes);
-                if (mins > 59) mins = 59;
-                return `:${mins.toString().padStart(2, '0')}Z`;
-            });
-            
-            // Fix format "2024-07T06:00:08.142Z" (missing day)
-            if (dateString.match(/^\d{4}-\d{2}T/)) {
-                // Extract time only
-                const timeMatch = dateString.match(/T(\d{2}):(\d{2}):(\d{2})/);
-                if (timeMatch) {
-                    let hour = parseInt(timeMatch[1]);
-                    const minute = timeMatch[2];
-                    const period = hour >= 12 ? 'PM' : 'AM';
-                    hour = hour % 12;
-                    if (hour === 0) hour = 12;
-                    return `${hour}:${minute} ${period}`;
-                }
-            }
-            
-            // Convert "2024/04/01:01:83" to "2024-04-01T01:83:00"
-            if (dateString.includes('/') && dateString.includes(':')) {
-                dateString = dateString.replace(/\//g, '-');
-                dateString = dateString.replace(':', 'T');
-            }
-        }
-        
-        const d = new Date(dateString);
-        if (isNaN(d.getTime())) {
-            // If still invalid, try to extract time only
-            if (typeof date === 'string') {
-                const timeMatch = date.match(/(\d{1,2}):(\d{2})/);
-                if (timeMatch) {
-                    let hour = parseInt(timeMatch[1]);
-                    const minute = timeMatch[2];
-                    if (hour >= 0 && hour <= 23 && parseInt(minute) >= 0 && parseInt(minute) <= 59) {
-                        const period = hour >= 12 ? 'PM' : 'AM';
-                        hour = hour % 12;
-                        if (hour === 0) hour = 12;
-                        return `${hour}:${minute} ${period}`;
-                    }
-                }
-            }
-            return '--:-- --';
-        }
+        // ✅ Convert to Philippine Time (UTC+8)
+        const philippineTime = new Date(d.getTime() + (8 * 60 * 60 * 1000));
         
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        let hour = d.getHours();
-        const minute = d.getMinutes().toString().padStart(2, '0');
+        let hour = philippineTime.getUTCHours();
+        const minute = philippineTime.getUTCMinutes().toString().padStart(2, '0');
         const period = hour >= 12 ? 'PM' : 'AM';
         hour = hour % 12;
         if (hour === 0) hour = 12;
-        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} - ${hour}:${minute} ${period}`;
+        
+        return `${months[philippineTime.getUTCMonth()]} ${philippineTime.getUTCDate()}, ${philippineTime.getUTCFullYear()} - ${hour}:${minute} ${period}`;
     } catch (e) {
         console.error("Error formatting timestamp:", date, e);
         return '--:-- --';
@@ -118,14 +73,11 @@ router.post('/vehicle-scan', async (req, res) => {
         
         vehicleScanLogs.unshift(logEntry);
         
-        // Keep only last 500 logs
         if (vehicleScanLogs.length > 500) {
             vehicleScanLogs = vehicleScanLogs.slice(0, 500);
         }
         
         console.log(`✅ Vehicle scan logged: ${logEntry.plateNumber} at ${logEntry.timestamp}`);
-        console.log(`📊 Total vehicle scans: ${vehicleScanLogs.length}`);
-        
         res.status(201).json({ success: true, log: logEntry });
     } catch (err) {
         console.error("❌ Vehicle scan log error:", err.message);
@@ -133,27 +85,17 @@ router.post('/vehicle-scan', async (req, res) => {
     }
 });
 
-// ✅ 2. Get Statistics for Dashboard Cards - FIXED to return TOTAL panics
+// ✅ 2. Get Statistics for Dashboard Cards
 router.get('/security-stats', async (req, res) => {
     try {
         console.log("📊 Fetching security stats...");
         
-        // Count total visitors
         const totalVisitors = await Visitor.countDocuments();
-        
-        // Count ACTIVE panics (Pending status)
         const activePanicCount = await Panic.countDocuments({ status: 'Pending' });
-        
-        // Count RESOLVED panics
         const resolvedPanicCount = await Panic.countDocuments({ status: 'Resolved' });
-        
-        // ✅ Count TOTAL panics (ALL - both pending and resolved)
         const totalPanicCount = await Panic.countDocuments();
-        
-        // Count vehicle scans from memory
         const vehicleScanCount = vehicleScanLogs.length;
         
-        // Get today's visitors
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
@@ -163,7 +105,6 @@ router.get('/security-stats', async (req, res) => {
             entryTime: { $gte: today, $lt: tomorrow }
         });
         
-        // Get today's vehicle scans
         const vehicleScansToday = vehicleScanLogs.filter(v => {
             const scanTime = new Date(v.timestamp || v.createdAt);
             return scanTime >= today && scanTime < tomorrow;
@@ -171,20 +112,16 @@ router.get('/security-stats', async (req, res) => {
 
         console.log(`📊 STATS SUMMARY:`);
         console.log(`   - Total Visitors: ${totalVisitors}`);
-        console.log(`   - Visitors Today: ${visitorsToday}`);
-        console.log(`   - Active Panics (Pending): ${activePanicCount}`);
-        console.log(`   - Resolved Panics: ${resolvedPanicCount}`);
-        console.log(`   - ✅ TOTAL PANICS (All Time): ${totalPanicCount}`);
-        console.log(`   - Total Vehicle Scans: ${vehicleScanCount}`);
+        console.log(`   - Total Panics: ${totalPanicCount}`);
         console.log(`   - Vehicle Scans Today: ${vehicleScansToday}`);
 
         res.json({
             visitors: totalVisitors,
             visitorsToday: visitorsToday,
-            activePanics: activePanicCount,      // Active panics for alerts
-            resolvedPanics: resolvedPanicCount,  // Resolved panics
-            panics: totalPanicCount,             // ✅ TOTAL panics (for dashboard display)
-            totalPanics: totalPanicCount,        // Same as above
+            activePanics: activePanicCount,
+            resolvedPanics: resolvedPanicCount,
+            panics: totalPanicCount,
+            totalPanics: totalPanicCount,
             vehicleScans: vehicleScanCount,
             vehicleScansToday: vehicleScansToday,
             incoming: 0,
@@ -192,7 +129,6 @@ router.get('/security-stats', async (req, res) => {
         });
     } catch (err) {
         console.error("❌ Stats Route Error:", err.message);
-        console.error("Stack:", err.stack);
         res.status(500).json({ error: err.message, visitors: 0, panics: 0 });
     }
 });
@@ -213,37 +149,29 @@ router.get('/all', async (req, res) => {
             type: 'VISITOR',
             id: v._id,
             name: v.visitorName || v.name || 'Unknown Visitor',
+            visitorName: v.visitorName,
             details: formatDetails(v, 'VISITOR'),
             status: v.status || 'COMPLETED',
             timestamp: v.entryTime || v.createdAt,
             formattedTime: formatTimestamp(v.entryTime || v.createdAt),
             plateNumber: v.plateNumber || 'N/A',
             purpose: v.purpose || 'Visit',
-            hostName: v.residentToVisit || 'Unknown'
+            hostName: v.residentToVisit || 'Unknown',
+            residentToVisit: v.residentToVisit
         }));
         
         // Get panic alerts
-        console.log("📊 Fetching panic alerts...");
         const panics = await Panic.find()
             .sort({ createdAt: -1 })
             .limit(100);
         
         console.log(`📊 Found ${panics.length} panic logs`);
         
-        if (panics.length > 0) {
-            console.log("📊 Sample panic:", {
-                id: panics[0]._id,
-                residentName: panics[0].residentName,
-                blockLot: panics[0].blockLot,
-                status: panics[0].status,
-                createdAt: panics[0].createdAt
-            });
-        }
-        
         const formattedPanics = panics.map(p => ({ 
             type: 'PANIC',
             id: p._id,
             name: p.residentName || p.name || 'Emergency Alert',
+            residentName: p.residentName,
             details: formatDetails(p, 'PANIC'),
             status: p.status === 'Pending' ? 'ACTIVE' : (p.status === 'Resolved' ? 'RESOLVED' : p.status),
             timestamp: p.createdAt,
@@ -260,12 +188,12 @@ router.get('/all', async (req, res) => {
             type: 'VEHICLE',
             id: v._id || v.id,
             name: v.ownerName || 'Vehicle Owner',
+            ownerName: v.ownerName,
             details: formatDetails(v, 'VEHICLE_SCAN'),
             status: v.status || 'APPROVED & AUTHORIZED',
             timestamp: v.scanTimestamp || v.timestamp || v.createdAt,
             formattedTime: formatTimestamp(v.scanTimestamp || v.timestamp || v.createdAt),
             plateNumber: v.plateNumber,
-            ownerName: v.ownerName,
             vehicleType: v.vehicleType
         }));
 
@@ -279,7 +207,7 @@ router.get('/all', async (req, res) => {
             return timeB - timeA;
         });
 
-        console.log(`📊 Total logs: ${combinedLogs.length} (Visitors: ${formattedVisitors.length}, Panics: ${formattedPanics.length}, Vehicles: ${formattedVehicleScans.length})`);
+        console.log(`📊 Total logs: ${combinedLogs.length}`);
         
         res.json(combinedLogs);
     } catch (err) {
@@ -289,13 +217,11 @@ router.get('/all', async (req, res) => {
     }
 });
 
-// ✅ 4. GET active panic alerts only (for notifications)
+// ✅ 4. GET active panic alerts only
 router.get('/panic/active', async (req, res) => {
     try {
         const activePanics = await Panic.find({ status: 'Pending' })
             .sort({ createdAt: -1 });
-        
-        console.log(`📊 Found ${activePanics.length} active panics`);
         
         const formattedActivePanics = activePanics.map(p => ({
             id: p._id,
@@ -324,8 +250,6 @@ router.get('/panic/total', async (req, res) => {
         const pendingPanics = await Panic.countDocuments({ status: 'Pending' });
         const resolvedPanics = await Panic.countDocuments({ status: 'Resolved' });
         
-        console.log(`📊 Total Panics: ${totalPanics} (Pending: ${pendingPanics}, Resolved: ${resolvedPanics})`);
-        
         res.json({
             total: totalPanics,
             pending: pendingPanics,
@@ -347,7 +271,7 @@ router.get('/vehicle-scans', async (req, res) => {
     }
 });
 
-// ✅ 7. GET recent logs (last 24 hours)
+// ✅ 7. GET recent logs (last 24 hours in Philippine time)
 router.get('/recent', async (req, res) => {
     try {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -377,8 +301,7 @@ router.get('/recent', async (req, res) => {
                 name: p.residentName, 
                 timestamp: p.createdAt, 
                 formattedTime: formatTimestamp(p.createdAt),
-                blockLot: p.blockLot,
-                emergencyType: p.emergencyType
+                blockLot: p.blockLot
             })),
             ...recentVehicleScans.map(v => ({ 
                 type: 'VEHICLE_SCAN', 
@@ -397,11 +320,10 @@ router.get('/recent', async (req, res) => {
     }
 });
 
-// ✅ 8. Debug endpoint to check panic collection
+// ✅ 8. Debug endpoint
 router.get('/debug/panics', async (req, res) => {
     try {
         const allPanics = await Panic.find().sort({ createdAt: -1 });
-        console.log(`🔍 Debug: Found ${allPanics.length} panics in database`);
         
         res.json({
             success: true,
@@ -410,8 +332,6 @@ router.get('/debug/panics', async (req, res) => {
                 id: p._id,
                 residentName: p.residentName,
                 blockLot: p.blockLot,
-                houseNo: p.houseNo,
-                emergencyType: p.emergencyType,
                 status: p.status,
                 createdAt: p.createdAt,
                 formattedTime: formatTimestamp(p.createdAt)
@@ -419,44 +339,6 @@ router.get('/debug/panics', async (req, res) => {
         });
     } catch (err) {
         console.error("❌ Debug Panics Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ 9. TEMPORARY: Fix malformed panic timestamps (run once, then remove)
-router.get('/fix-timestamps', async (req, res) => {
-    try {
-        const allPanics = await Panic.find();
-        let fixedCount = 0;
-        
-        for (const panic of allPanics) {
-            let needsSave = false;
-            
-            // Fix invalid createdAt
-            if (panic.createdAt && isNaN(new Date(panic.createdAt).getTime())) {
-                panic.createdAt = new Date();
-                needsSave = true;
-                fixedCount++;
-            }
-            
-            // Fix invalid updatedAt
-            if (panic.updatedAt && isNaN(new Date(panic.updatedAt).getTime())) {
-                panic.updatedAt = new Date();
-                needsSave = true;
-            }
-            
-            if (needsSave) {
-                await panic.save();
-            }
-        }
-        
-        res.json({ 
-            success: true, 
-            message: `Fixed ${fixedCount} panic records`,
-            totalPanics: allPanics.length
-        });
-    } catch (err) {
-        console.error("❌ Fix timestamps error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
