@@ -1,47 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const Visitor = require('../models/visitorModel'); 
-const Panic = require('../models/panicModel');     // Make sure this matches your model export name
+const Panic = require('../models/panicModel');
 
-// In-memory storage for vehicle scans (no database model needed)
 let vehicleScanLogs = [];
 
-// ✅ Helper function to get Philippine Time (UTC+8)
-function getPhilippineTime(date = new Date()) {
-    return new Date(date.getTime() + (8 * 60 * 60 * 1000));
-}
-
-// ✅ FIXED: Helper function to format timestamp for Philippine Time (UTC+8)
+// ✅ Unified formatTimestamp - converts UTC to Philippine Time (UTC+8)
 function formatTimestamp(date) {
     if (!date) return '--:-- --';
     try {
         const d = new Date(date);
         if (isNaN(d.getTime())) return '--:-- --';
         
-        // Check if already in Philippine Time (hour > 8)
-        let philippineTime;
-        if (d.getUTCHours() < 8 && d.getHours() !== d.getUTCHours()) {
-            // Convert to Philippine Time (UTC+8)
-            philippineTime = new Date(d.getTime() + (8 * 60 * 60 * 1000));
-        } else {
-            philippineTime = d;
-        }
+        // Convert UTC to Philippine Time (add 8 hours)
+        const philippineTime = new Date(d.getTime() + (8 * 60 * 60 * 1000));
         
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        let hour = philippineTime.getHours();
-        const minute = philippineTime.getMinutes().toString().padStart(2, '0');
+        let hour = philippineTime.getUTCHours();
+        const minute = philippineTime.getUTCMinutes().toString().padStart(2, '0');
         const period = hour >= 12 ? 'PM' : 'AM';
         hour = hour % 12;
         if (hour === 0) hour = 12;
         
-        return `${months[philippineTime.getMonth()]} ${philippineTime.getDate()}, ${philippineTime.getFullYear()} - ${hour}:${minute} ${period}`;
+        return `${months[philippineTime.getUTCMonth()]} ${philippineTime.getUTCDate()}, ${philippineTime.getUTCFullYear()} - ${hour}:${minute} ${period}`;
     } catch (e) {
         console.error("Error formatting timestamp:", date, e);
         return '--:-- --';
     }
 }
 
-// Helper function to format details based on log type
+// Helper function to format details
 function formatDetails(log, type) {
     if (type === 'VISITOR') {
         let details = log.visitorName || log.name || 'Unknown Visitor';
@@ -69,22 +57,19 @@ function formatDetails(log, type) {
     return log.details || 'N/A';
 }
 
-// ✅ 1. POST - Save vehicle scan log (FIXED: Using Philippine Time)
+// ✅ 1. POST - Save vehicle scan log (Store in UTC)
 router.post('/vehicle-scan', async (req, res) => {
     try {
         console.log("📝 Vehicle scan request received:", req.body);
         
-        // ✅ Create Philippine Time (UTC+8)
-        const now = new Date();
-        const philippineNow = getPhilippineTime(now);
+        const now = new Date(); // UTC
         
         const logEntry = {
             ...req.body,
             _id: Date.now().toString(),
             type: 'VEHICLE_SCAN',
-            createdAt: philippineNow,
-            timestamp: philippineNow.toISOString(),
-            rawTimestamp: now.toISOString() // Keep raw UTC for reference
+            createdAt: now,
+            timestamp: now.toISOString()
         };
         
         vehicleScanLogs.unshift(logEntry);
@@ -101,80 +86,61 @@ router.post('/vehicle-scan', async (req, res) => {
     }
 });
 
-// ✅ 2. Get Statistics for Dashboard Cards
+// ✅ 2. Get Statistics
 router.get('/security-stats', async (req, res) => {
     try {
-        console.log("📊 Fetching security stats...");
-        
         const totalVisitors = await Visitor.countDocuments();
         const activePanicCount = await Panic.countDocuments({ status: 'Pending' });
-        const resolvedPanicCount = await Panic.countDocuments({ status: 'Resolved' });
         const totalPanicCount = await Panic.countDocuments();
         const vehicleScanCount = vehicleScanLogs.length;
         
-        // Get today's date in Philippine Time
-        const philippineNow = getPhilippineTime(new Date());
-        const todayStart = new Date(philippineNow);
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date(philippineNow);
-        todayEnd.setHours(23, 59, 59, 999);
+        // Get today's UTC date range
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
         
         const visitorsToday = await Visitor.countDocuments({
-            entryTime: { $gte: todayStart, $lt: todayEnd }
+            entryTime: { $gte: today, $lt: tomorrow }
         });
         
         const vehicleScansToday = vehicleScanLogs.filter(v => {
             const scanTime = new Date(v.timestamp || v.createdAt);
-            return scanTime >= todayStart && scanTime < todayEnd;
+            return scanTime >= today && scanTime < tomorrow;
         }).length;
-
-        console.log(`📊 STATS SUMMARY:`);
-        console.log(`   - Total Visitors: ${totalVisitors}`);
-        console.log(`   - Total Panics: ${totalPanicCount}`);
-        console.log(`   - Vehicle Scans Today: ${vehicleScansToday}`);
 
         res.json({
             visitors: totalVisitors,
             visitorsToday: visitorsToday,
-            activePanics: activePanicCount,
-            resolvedPanics: resolvedPanicCount,
             panics: totalPanicCount,
-            totalPanics: totalPanicCount,
             vehicleScans: vehicleScanCount,
-            vehicleScansToday: vehicleScansToday,
-            incoming: 0,
-            outgoing: 0
+            vehicleScansToday: vehicleScansToday
         });
     } catch (err) {
         console.error("❌ Stats Route Error:", err.message);
-        res.status(500).json({ error: err.message, visitors: 0, panics: 0 });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ✅ 3. GET all consolidated logs (Visitors + Panics + Vehicle Scans)
+// ✅ 3. GET all consolidated logs
 router.get('/all', async (req, res) => {
     try {
-        console.log("📊 Fetching all consolidated logs...");
-        
         // Get visitor logs
         const visitors = await Visitor.find()
-            .sort({ entryTime: -1, createdAt: -1 })
+            .sort({ entryTime: -1 })
             .limit(100);
-        
-        console.log(`📊 Found ${visitors.length} visitor logs`);
         
         const formattedVisitors = visitors.map(v => ({ 
             type: 'VISITOR',
             id: v._id,
-            name: v.visitorName || v.name || 'Unknown Visitor',
+            name: v.visitorName,
             visitorName: v.visitorName,
             details: formatDetails(v, 'VISITOR'),
             status: v.status || 'COMPLETED',
-            timestamp: v.entryTime || v.createdAt,
-            formattedTime: formatTimestamp(v.entryTime || v.createdAt),
-            plateNumber: v.plateNumber || 'N/A',
-            purpose: v.purpose || 'Visit',
-            hostName: v.residentToVisit || 'Unknown',
+            timestamp: v.entryTime,
+            formattedTime: formatTimestamp(v.entryTime),
+            plateNumber: v.plateNumber,
+            purpose: v.purpose,
             residentToVisit: v.residentToVisit
         }));
         
@@ -183,34 +149,28 @@ router.get('/all', async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(100);
         
-        console.log(`📊 Found ${panics.length} panic logs`);
-        
         const formattedPanics = panics.map(p => ({ 
             type: 'PANIC',
             id: p._id,
-            name: p.residentName || p.name || 'Emergency Alert',
+            name: p.residentName,
             residentName: p.residentName,
             details: formatDetails(p, 'PANIC'),
-            status: p.status === 'Pending' ? 'ACTIVE' : (p.status === 'Resolved' ? 'RESOLVED' : p.status),
+            status: p.status === 'Pending' ? 'ACTIVE' : 'RESOLVED',
             timestamp: p.createdAt,
             formattedTime: formatTimestamp(p.createdAt),
-            latitude: p.location?.latitude,
-            longitude: p.location?.longitude,
-            houseNo: p.houseNo || 'N/A',
-            blockLot: p.blockLot || 'N/A',
-            emergencyType: p.emergencyType || 'Emergency Alert'
+            blockLot: p.blockLot || 'N/A'
         }));
         
-        // Get vehicle scan logs from memory - use formattedTime directly
+        // Get vehicle scan logs
         const formattedVehicleScans = vehicleScanLogs.map(v => ({ 
             type: 'VEHICLE',
-            id: v._id || v.id,
-            name: v.ownerName || 'Vehicle Owner',
+            id: v._id,
+            name: v.ownerName,
             ownerName: v.ownerName,
             details: formatDetails(v, 'VEHICLE_SCAN'),
             status: v.status || 'APPROVED & AUTHORIZED',
-            timestamp: v.timestamp || v.createdAt,
-            formattedTime: formatTimestamp(v.timestamp || v.createdAt),
+            timestamp: v.timestamp,
+            formattedTime: formatTimestamp(v.timestamp),
             plateNumber: v.plateNumber,
             vehicleType: v.vehicleType
         }));
@@ -225,17 +185,14 @@ router.get('/all', async (req, res) => {
             return timeB - timeA;
         });
 
-        console.log(`📊 Total logs: ${combinedLogs.length}`);
-        
         res.json(combinedLogs);
     } catch (err) {
         console.error("❌ Log Route Error:", err.message);
-        console.error("Stack:", err.stack);
         res.status(500).json({ error: err.message });
     }
 });
 
-// ✅ 4. GET active panic alerts only
+// ✅ 4. GET active panic alerts
 router.get('/panic/active', async (req, res) => {
     try {
         const activePanics = await Panic.find({ status: 'Pending' })
@@ -244,11 +201,7 @@ router.get('/panic/active', async (req, res) => {
         const formattedActivePanics = activePanics.map(p => ({
             id: p._id,
             residentName: p.residentName,
-            name: p.residentName,
-            houseNo: p.houseNo || 'N/A',
-            blockLot: p.blockLot || 'N/A',
-            location: p.location,
-            emergencyType: p.emergencyType,
+            blockLot: p.blockLot,
             status: p.status,
             timestamp: p.createdAt,
             formattedTime: formatTimestamp(p.createdAt)
@@ -257,107 +210,6 @@ router.get('/panic/active', async (req, res) => {
         res.json(formattedActivePanics);
     } catch (err) {
         console.error("❌ Active Panics Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ 5. GET TOTAL panic count endpoint
-router.get('/panic/total', async (req, res) => {
-    try {
-        const totalPanics = await Panic.countDocuments();
-        const pendingPanics = await Panic.countDocuments({ status: 'Pending' });
-        const resolvedPanics = await Panic.countDocuments({ status: 'Resolved' });
-        
-        res.json({
-            total: totalPanics,
-            pending: pendingPanics,
-            resolved: resolvedPanics
-        });
-    } catch (err) {
-        console.error("❌ Total Panics Error:", err.message);
-        res.status(500).json({ error: err.message, total: 0 });
-    }
-});
-
-// ✅ 6. GET vehicle scan logs only
-router.get('/vehicle-scans', async (req, res) => {
-    try {
-        res.json(vehicleScanLogs);
-    } catch (err) {
-        console.error("❌ Vehicle Scans Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ 7. GET recent logs (last 24 hours in Philippine time)
-router.get('/recent', async (req, res) => {
-    try {
-        const philippineNow = getPhilippineTime(new Date());
-        const twentyFourHoursAgo = new Date(philippineNow.getTime() - 24 * 60 * 60 * 1000);
-        
-        const recentVisitors = await Visitor.find({
-            entryTime: { $gte: twentyFourHoursAgo }
-        }).sort({ entryTime: -1 });
-        
-        const recentPanics = await Panic.find({
-            createdAt: { $gte: twentyFourHoursAgo }
-        }).sort({ createdAt: -1 });
-        
-        const recentVehicleScans = vehicleScanLogs.filter(v => {
-            const scanTime = new Date(v.timestamp || v.createdAt);
-            return scanTime >= twentyFourHoursAgo;
-        });
-        
-        let recentLogs = [
-            ...recentVisitors.map(v => ({ 
-                type: 'VISITOR', 
-                name: v.visitorName, 
-                timestamp: v.entryTime, 
-                formattedTime: formatTimestamp(v.entryTime) 
-            })),
-            ...recentPanics.map(p => ({ 
-                type: 'PANIC', 
-                name: p.residentName, 
-                timestamp: p.createdAt, 
-                formattedTime: formatTimestamp(p.createdAt),
-                blockLot: p.blockLot
-            })),
-            ...recentVehicleScans.map(v => ({ 
-                type: 'VEHICLE_SCAN', 
-                name: v.ownerName, 
-                timestamp: v.scanTimestamp, 
-                formattedTime: formatTimestamp(v.scanTimestamp) 
-            }))
-        ];
-        
-        recentLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        
-        res.json(recentLogs);
-    } catch (err) {
-        console.error("❌ Recent Logs Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ 8. Debug endpoint
-router.get('/debug/panics', async (req, res) => {
-    try {
-        const allPanics = await Panic.find().sort({ createdAt: -1 });
-        
-        res.json({
-            success: true,
-            count: allPanics.length,
-            panics: allPanics.map(p => ({
-                id: p._id,
-                residentName: p.residentName,
-                blockLot: p.blockLot,
-                status: p.status,
-                createdAt: p.createdAt,
-                formattedTime: formatTimestamp(p.createdAt)
-            }))
-        });
-    } catch (err) {
-        console.error("❌ Debug Panics Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
