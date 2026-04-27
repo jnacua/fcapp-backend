@@ -6,12 +6,62 @@ const Panic = require('../models/panicModel');     // Make sure this matches you
 // In-memory storage for vehicle scans (no database model needed)
 let vehicleScanLogs = [];
 
-// Helper function to format timestamp for display
+// ✅ IMPROVED Helper function to format timestamp for display (handles malformed dates)
 function formatTimestamp(date) {
     if (!date) return '--:-- --';
     try {
-        const d = new Date(date);
-        if (isNaN(d.getTime())) return '--:-- --';
+        // If it's already a string, try to clean it
+        let dateString = date;
+        
+        // Handle malformed timestamps like "2024/04/01:01:83Z"
+        if (typeof dateString === 'string') {
+            // Fix invalid minutes ( > 59 )
+            dateString = dateString.replace(/:(\d{2})Z?/g, (match, minutes) => {
+                let mins = parseInt(minutes);
+                if (mins > 59) mins = 59;
+                return `:${mins.toString().padStart(2, '0')}Z`;
+            });
+            
+            // Fix format "2024-07T06:00:08.142Z" (missing day)
+            if (dateString.match(/^\d{4}-\d{2}T/)) {
+                // Extract time only
+                const timeMatch = dateString.match(/T(\d{2}):(\d{2}):(\d{2})/);
+                if (timeMatch) {
+                    let hour = parseInt(timeMatch[1]);
+                    const minute = timeMatch[2];
+                    const period = hour >= 12 ? 'PM' : 'AM';
+                    hour = hour % 12;
+                    if (hour === 0) hour = 12;
+                    return `${hour}:${minute} ${period}`;
+                }
+            }
+            
+            // Convert "2024/04/01:01:83" to "2024-04-01T01:83:00"
+            if (dateString.includes('/') && dateString.includes(':')) {
+                dateString = dateString.replace(/\//g, '-');
+                dateString = dateString.replace(':', 'T');
+            }
+        }
+        
+        const d = new Date(dateString);
+        if (isNaN(d.getTime())) {
+            // If still invalid, try to extract time only
+            if (typeof date === 'string') {
+                const timeMatch = date.match(/(\d{1,2}):(\d{2})/);
+                if (timeMatch) {
+                    let hour = parseInt(timeMatch[1]);
+                    const minute = timeMatch[2];
+                    if (hour >= 0 && hour <= 23 && parseInt(minute) >= 0 && parseInt(minute) <= 59) {
+                        const period = hour >= 12 ? 'PM' : 'AM';
+                        hour = hour % 12;
+                        if (hour === 0) hour = 12;
+                        return `${hour}:${minute} ${period}`;
+                    }
+                }
+            }
+            return '--:-- --';
+        }
+        
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         let hour = d.getHours();
         const minute = d.getMinutes().toString().padStart(2, '0');
@@ -20,7 +70,8 @@ function formatTimestamp(date) {
         if (hour === 0) hour = 12;
         return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} - ${hour}:${minute} ${period}`;
     } catch (e) {
-        return date.toString();
+        console.error("Error formatting timestamp:", date, e);
+        return '--:-- --';
     }
 }
 
@@ -368,6 +419,44 @@ router.get('/debug/panics', async (req, res) => {
         });
     } catch (err) {
         console.error("❌ Debug Panics Error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ 9. TEMPORARY: Fix malformed panic timestamps (run once, then remove)
+router.get('/fix-timestamps', async (req, res) => {
+    try {
+        const allPanics = await Panic.find();
+        let fixedCount = 0;
+        
+        for (const panic of allPanics) {
+            let needsSave = false;
+            
+            // Fix invalid createdAt
+            if (panic.createdAt && isNaN(new Date(panic.createdAt).getTime())) {
+                panic.createdAt = new Date();
+                needsSave = true;
+                fixedCount++;
+            }
+            
+            // Fix invalid updatedAt
+            if (panic.updatedAt && isNaN(new Date(panic.updatedAt).getTime())) {
+                panic.updatedAt = new Date();
+                needsSave = true;
+            }
+            
+            if (needsSave) {
+                await panic.save();
+            }
+        }
+        
+        res.json({ 
+            success: true, 
+            message: `Fixed ${fixedCount} panic records`,
+            totalPanics: allPanics.length
+        });
+    } catch (err) {
+        console.error("❌ Fix timestamps error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
