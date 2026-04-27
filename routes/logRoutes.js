@@ -6,6 +6,11 @@ const Panic = require('../models/panicModel');     // Make sure this matches you
 // In-memory storage for vehicle scans (no database model needed)
 let vehicleScanLogs = [];
 
+// ✅ Helper function to get Philippine Time (UTC+8)
+function getPhilippineTime(date = new Date()) {
+    return new Date(date.getTime() + (8 * 60 * 60 * 1000));
+}
+
 // ✅ FIXED: Helper function to format timestamp for Philippine Time (UTC+8)
 function formatTimestamp(date) {
     if (!date) return '--:-- --';
@@ -13,17 +18,23 @@ function formatTimestamp(date) {
         const d = new Date(date);
         if (isNaN(d.getTime())) return '--:-- --';
         
-        // ✅ Convert to Philippine Time (UTC+8)
-        const philippineTime = new Date(d.getTime() + (8 * 60 * 60 * 1000));
+        // Check if already in Philippine Time (hour > 8)
+        let philippineTime;
+        if (d.getUTCHours() < 8 && d.getHours() !== d.getUTCHours()) {
+            // Convert to Philippine Time (UTC+8)
+            philippineTime = new Date(d.getTime() + (8 * 60 * 60 * 1000));
+        } else {
+            philippineTime = d;
+        }
         
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        let hour = philippineTime.getUTCHours();
-        const minute = philippineTime.getUTCMinutes().toString().padStart(2, '0');
+        let hour = philippineTime.getHours();
+        const minute = philippineTime.getMinutes().toString().padStart(2, '0');
         const period = hour >= 12 ? 'PM' : 'AM';
         hour = hour % 12;
         if (hour === 0) hour = 12;
         
-        return `${months[philippineTime.getUTCMonth()]} ${philippineTime.getUTCDate()}, ${philippineTime.getUTCFullYear()} - ${hour}:${minute} ${period}`;
+        return `${months[philippineTime.getMonth()]} ${philippineTime.getDate()}, ${philippineTime.getFullYear()} - ${hour}:${minute} ${period}`;
     } catch (e) {
         console.error("Error formatting timestamp:", date, e);
         return '--:-- --';
@@ -58,17 +69,22 @@ function formatDetails(log, type) {
     return log.details || 'N/A';
 }
 
-// ✅ 1. POST - Save vehicle scan log (in-memory)
+// ✅ 1. POST - Save vehicle scan log (FIXED: Using Philippine Time)
 router.post('/vehicle-scan', async (req, res) => {
     try {
         console.log("📝 Vehicle scan request received:", req.body);
+        
+        // ✅ Create Philippine Time (UTC+8)
+        const now = new Date();
+        const philippineNow = getPhilippineTime(now);
         
         const logEntry = {
             ...req.body,
             _id: Date.now().toString(),
             type: 'VEHICLE_SCAN',
-            createdAt: new Date(),
-            timestamp: new Date().toISOString()
+            createdAt: philippineNow,
+            timestamp: philippineNow.toISOString(),
+            rawTimestamp: now.toISOString() // Keep raw UTC for reference
         };
         
         vehicleScanLogs.unshift(logEntry);
@@ -96,18 +112,20 @@ router.get('/security-stats', async (req, res) => {
         const totalPanicCount = await Panic.countDocuments();
         const vehicleScanCount = vehicleScanLogs.length;
         
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        // Get today's date in Philippine Time
+        const philippineNow = getPhilippineTime(new Date());
+        const todayStart = new Date(philippineNow);
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(philippineNow);
+        todayEnd.setHours(23, 59, 59, 999);
         
         const visitorsToday = await Visitor.countDocuments({
-            entryTime: { $gte: today, $lt: tomorrow }
+            entryTime: { $gte: todayStart, $lt: todayEnd }
         });
         
         const vehicleScansToday = vehicleScanLogs.filter(v => {
             const scanTime = new Date(v.timestamp || v.createdAt);
-            return scanTime >= today && scanTime < tomorrow;
+            return scanTime >= todayStart && scanTime < todayEnd;
         }).length;
 
         console.log(`📊 STATS SUMMARY:`);
@@ -183,7 +201,7 @@ router.get('/all', async (req, res) => {
             emergencyType: p.emergencyType || 'Emergency Alert'
         }));
         
-        // Get vehicle scan logs from memory
+        // Get vehicle scan logs from memory - use formattedTime directly
         const formattedVehicleScans = vehicleScanLogs.map(v => ({ 
             type: 'VEHICLE',
             id: v._id || v.id,
@@ -191,8 +209,8 @@ router.get('/all', async (req, res) => {
             ownerName: v.ownerName,
             details: formatDetails(v, 'VEHICLE_SCAN'),
             status: v.status || 'APPROVED & AUTHORIZED',
-            timestamp: v.scanTimestamp || v.timestamp || v.createdAt,
-            formattedTime: formatTimestamp(v.scanTimestamp || v.timestamp || v.createdAt),
+            timestamp: v.timestamp || v.createdAt,
+            formattedTime: formatTimestamp(v.timestamp || v.createdAt),
             plateNumber: v.plateNumber,
             vehicleType: v.vehicleType
         }));
@@ -274,7 +292,8 @@ router.get('/vehicle-scans', async (req, res) => {
 // ✅ 7. GET recent logs (last 24 hours in Philippine time)
 router.get('/recent', async (req, res) => {
     try {
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const philippineNow = getPhilippineTime(new Date());
+        const twentyFourHoursAgo = new Date(philippineNow.getTime() - 24 * 60 * 60 * 1000);
         
         const recentVisitors = await Visitor.find({
             entryTime: { $gte: twentyFourHoursAgo }
@@ -285,7 +304,7 @@ router.get('/recent', async (req, res) => {
         }).sort({ createdAt: -1 });
         
         const recentVehicleScans = vehicleScanLogs.filter(v => {
-            const scanTime = new Date(v.scanTimestamp || v.timestamp || v.createdAt);
+            const scanTime = new Date(v.timestamp || v.createdAt);
             return scanTime >= twentyFourHoursAgo;
         });
         
