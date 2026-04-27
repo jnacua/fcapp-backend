@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Visitor = require('../models/visitorModel'); 
-const Panic = require('../models/panicModel');     
+const Panic = require('../models/panicModel');     // Make sure this matches your model export name
 
 // In-memory storage for vehicle scans (no database model needed)
 let vehicleScanLogs = [];
@@ -11,6 +11,7 @@ function formatTimestamp(date) {
     if (!date) return '--:-- --';
     try {
         const d = new Date(date);
+        if (isNaN(d.getTime())) return '--:-- --';
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         let hour = d.getHours();
         const minute = d.getMinutes().toString().padStart(2, '0');
@@ -39,8 +40,10 @@ function formatDetails(log, type) {
         return details;
     } else if (type === 'PANIC') {
         const name = log.residentName || log.name || 'Unknown Resident';
-        const location = log.houseNo || log.blockLot || 'Unknown Location';
-        return `${name} - Location: ${location}`;
+        // Try multiple possible location fields
+        const location = log.blockLot || log.houseNo || log.userId?.blockLot || 'Unknown Location';
+        const emergencyType = log.emergencyType ? ` [${log.emergencyType}]` : '';
+        return `${name} - Location: ${location}${emergencyType}`;
     } else if (type === 'VEHICLE_SCAN') {
         const plateNumber = log.plateNumber || 'N/A';
         const ownerName = log.ownerName || 'Unknown Owner';
@@ -53,6 +56,8 @@ function formatDetails(log, type) {
 // ✅ 1. POST - Save vehicle scan log (in-memory)
 router.post('/vehicle-scan', async (req, res) => {
     try {
+        console.log("📝 Vehicle scan request received:", req.body);
+        
         const logEntry = {
             ...req.body,
             _id: Date.now().toString(),
@@ -69,6 +74,8 @@ router.post('/vehicle-scan', async (req, res) => {
         }
         
         console.log(`✅ Vehicle scan logged: ${logEntry.plateNumber} at ${logEntry.timestamp}`);
+        console.log(`📊 Total vehicle scans: ${vehicleScanLogs.length}`);
+        
         res.status(201).json({ success: true, log: logEntry });
     } catch (err) {
         console.error("❌ Vehicle scan log error:", err.message);
@@ -79,6 +86,8 @@ router.post('/vehicle-scan', async (req, res) => {
 // ✅ 2. Get Statistics for Dashboard Cards
 router.get('/security-stats', async (req, res) => {
     try {
+        console.log("📊 Fetching security stats...");
+        
         // Count visitors
         const visitorCount = await Visitor.countDocuments();
         
@@ -101,7 +110,7 @@ router.get('/security-stats', async (req, res) => {
             entryTime: { $gte: today, $lt: tomorrow }
         });
 
-        console.log(`📊 Stats: Visitors(${visitorCount}) | Visitors Today(${visitorsToday}) | Active Panics(${activePanicCount}) | Vehicle Scans(${vehicleScanCount})`);
+        console.log(`📊 Stats: Visitors(${visitorCount}) | Visitors Today(${visitorsToday}) | Active Panics(${activePanicCount}) | Total Panics(${totalPanicCount}) | Vehicle Scans(${vehicleScanCount})`);
 
         res.json({
             visitors: visitorCount,
@@ -114,6 +123,7 @@ router.get('/security-stats', async (req, res) => {
         });
     } catch (err) {
         console.error("❌ Stats Route Error:", err.message);
+        console.error("Stack:", err.stack);
         res.status(500).json({ error: err.message });
     }
 });
@@ -121,10 +131,14 @@ router.get('/security-stats', async (req, res) => {
 // ✅ 3. GET all consolidated logs (Visitors + Panics + Vehicle Scans)
 router.get('/all', async (req, res) => {
     try {
+        console.log("📊 Fetching all consolidated logs...");
+        
         // Get visitor logs
         const visitors = await Visitor.find()
             .sort({ entryTime: -1, createdAt: -1 })
             .limit(100);
+        
+        console.log(`📊 Found ${visitors.length} visitor logs`);
         
         const formattedVisitors = visitors.map(v => ({ 
             type: 'VISITOR',
@@ -139,28 +153,43 @@ router.get('/all', async (req, res) => {
             hostName: v.residentToVisit || 'Unknown'
         }));
         
-        // Get panic alerts
+        // Get panic alerts - use the correct model name
+        console.log("📊 Fetching panic alerts...");
         const panics = await Panic.find()
             .sort({ createdAt: -1 })
             .limit(100);
+        
+        console.log(`📊 Found ${panics.length} panic logs`);
+        
+        // Log first panic for debugging
+        if (panics.length > 0) {
+            console.log("📊 Sample panic:", {
+                id: panics[0]._id,
+                residentName: panics[0].residentName,
+                blockLot: panics[0].blockLot,
+                status: panics[0].status,
+                createdAt: panics[0].createdAt
+            });
+        }
         
         const formattedPanics = panics.map(p => ({ 
             type: 'PANIC',
             id: p._id,
             name: p.residentName || p.name || 'Emergency Alert',
             details: formatDetails(p, 'PANIC'),
-            status: p.status === 'Pending' ? 'ACTIVE' : 'RESOLVED',
+            status: p.status === 'Pending' ? 'ACTIVE' : (p.status === 'Resolved' ? 'RESOLVED' : p.status),
             timestamp: p.createdAt,
             formattedTime: formatTimestamp(p.createdAt),
             latitude: p.location?.latitude,
             longitude: p.location?.longitude,
-            houseNo: p.houseNo,
-            blockLot: p.blockLot
+            houseNo: p.houseNo || 'N/A',
+            blockLot: p.blockLot || 'N/A',
+            emergencyType: p.emergencyType || 'Emergency Alert'
         }));
         
         // Get vehicle scan logs from memory
         const formattedVehicleScans = vehicleScanLogs.map(v => ({ 
-            type: 'VEHICLE_SCAN',
+            type: 'VEHICLE',
             id: v._id || v.id,
             name: v.ownerName || 'Vehicle Owner',
             details: formatDetails(v, 'VEHICLE_SCAN'),
@@ -182,11 +211,12 @@ router.get('/all', async (req, res) => {
             return timeB - timeA;
         });
 
-        console.log(`📊 Fetched ${combinedLogs.length} logs (${formattedVisitors.length} visitors, ${formattedPanics.length} panics, ${formattedVehicleScans.length} vehicle scans)`);
+        console.log(`📊 Total logs: ${combinedLogs.length} (Visitors: ${formattedVisitors.length}, Panics: ${formattedPanics.length}, Vehicles: ${formattedVehicleScans.length})`);
         
         res.json(combinedLogs);
     } catch (err) {
         console.error("❌ Log Route Error:", err.message);
+        console.error("Stack:", err.stack);
         res.status(500).json({ error: err.message });
     }
 });
@@ -197,12 +227,16 @@ router.get('/panic/active', async (req, res) => {
         const activePanics = await Panic.find({ status: 'Pending' })
             .sort({ createdAt: -1 });
         
+        console.log(`📊 Found ${activePanics.length} active panics`);
+        
         const formattedActivePanics = activePanics.map(p => ({
             id: p._id,
             residentName: p.residentName,
-            houseNo: p.houseNo,
-            blockLot: p.blockLot,
+            name: p.residentName,
+            houseNo: p.houseNo || 'N/A',
+            blockLot: p.blockLot || 'N/A',
             location: p.location,
+            emergencyType: p.emergencyType,
             status: p.status,
             timestamp: p.createdAt,
             formattedTime: formatTimestamp(p.createdAt)
@@ -254,7 +288,9 @@ router.get('/recent', async (req, res) => {
                 type: 'PANIC', 
                 name: p.residentName, 
                 timestamp: p.createdAt, 
-                formattedTime: formatTimestamp(p.createdAt) 
+                formattedTime: formatTimestamp(p.createdAt),
+                blockLot: p.blockLot,
+                emergencyType: p.emergencyType
             })),
             ...recentVehicleScans.map(v => ({ 
                 type: 'VEHICLE_SCAN', 
@@ -269,6 +305,32 @@ router.get('/recent', async (req, res) => {
         res.json(recentLogs);
     } catch (err) {
         console.error("❌ Recent Logs Error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ 7. Debug endpoint to check panic collection
+router.get('/debug/panics', async (req, res) => {
+    try {
+        const allPanics = await Panic.find().sort({ createdAt: -1 });
+        console.log(`🔍 Debug: Found ${allPanics.length} panics in database`);
+        
+        res.json({
+            success: true,
+            count: allPanics.length,
+            panics: allPanics.map(p => ({
+                id: p._id,
+                residentName: p.residentName,
+                blockLot: p.blockLot,
+                houseNo: p.houseNo,
+                emergencyType: p.emergencyType,
+                status: p.status,
+                createdAt: p.createdAt,
+                formattedTime: formatTimestamp(p.createdAt)
+            }))
+        });
+    } catch (err) {
+        console.error("❌ Debug Panics Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
