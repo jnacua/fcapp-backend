@@ -2,18 +2,25 @@ const express = require('express');
 const router = express.Router();
 const Visitor = require('../models/visitorModel'); 
 const Panic = require('../models/panicModel');     
-const VehicleScan = require('../models/vehicleScanModel'); // Create this model if needed
+
+// In-memory storage for vehicle scans (no database model needed)
+let vehicleScanLogs = [];
 
 // Helper function to format timestamp for display
 function formatTimestamp(date) {
     if (!date) return '--:-- --';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    let hour = date.getHours();
-    const minute = date.getMinutes().toString().padStart(2, '0');
-    const period = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12;
-    if (hour === 0) hour = 12;
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} - ${hour}:${minute} ${period}`;
+    try {
+        const d = new Date(date);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        let hour = d.getHours();
+        const minute = d.getMinutes().toString().padStart(2, '0');
+        const period = hour >= 12 ? 'PM' : 'AM';
+        hour = hour % 12;
+        if (hour === 0) hour = 12;
+        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} - ${hour}:${minute} ${period}`;
+    } catch (e) {
+        return date.toString();
+    }
 }
 
 // Helper function to format details based on log type
@@ -43,10 +50,33 @@ function formatDetails(log, type) {
     return log.details || 'N/A';
 }
 
-// In-memory storage for vehicle scans (if no database model yet)
-let vehicleScanLogs = [];
+// ✅ 1. POST - Save vehicle scan log (in-memory)
+router.post('/vehicle-scan', async (req, res) => {
+    try {
+        const logEntry = {
+            ...req.body,
+            _id: Date.now().toString(),
+            type: 'VEHICLE_SCAN',
+            createdAt: new Date(),
+            timestamp: new Date().toISOString()
+        };
+        
+        vehicleScanLogs.unshift(logEntry);
+        
+        // Keep only last 500 logs
+        if (vehicleScanLogs.length > 500) {
+            vehicleScanLogs = vehicleScanLogs.slice(0, 500);
+        }
+        
+        console.log(`✅ Vehicle scan logged: ${logEntry.plateNumber} at ${logEntry.timestamp}`);
+        res.status(201).json({ success: true, log: logEntry });
+    } catch (err) {
+        console.error("❌ Vehicle scan log error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
-// ✅ 1. Get Statistics for Dashboard Cards
+// ✅ 2. Get Statistics for Dashboard Cards
 router.get('/security-stats', async (req, res) => {
     try {
         // Count visitors
@@ -58,7 +88,7 @@ router.get('/security-stats', async (req, res) => {
         // Count total panics
         const totalPanicCount = await Panic.countDocuments();
         
-        // Count vehicle scans
+        // Count vehicle scans from memory
         const vehicleScanCount = vehicleScanLogs.length;
         
         // Get today's visitors
@@ -88,36 +118,10 @@ router.get('/security-stats', async (req, res) => {
     }
 });
 
-// ✅ 2. POST - Save vehicle scan log
-router.post('/vehicle-scan', async (req, res) => {
-    try {
-        const logEntry = {
-            ...req.body,
-            _id: Date.now().toString(),
-            type: 'VEHICLE_SCAN',
-            createdAt: new Date(),
-            timestamp: new Date().toISOString()
-        };
-        
-        vehicleScanLogs.unshift(logEntry);
-        
-        // Keep only last 500 logs
-        if (vehicleScanLogs.length > 500) {
-            vehicleScanLogs = vehicleScanLogs.slice(0, 500);
-        }
-        
-        console.log(`✅ Vehicle scan logged: ${logEntry.plateNumber} at ${logEntry.timestamp}`);
-        res.status(201).json({ success: true, log: logEntry });
-    } catch (err) {
-        console.error("❌ Vehicle scan log error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // ✅ 3. GET all consolidated logs (Visitors + Panics + Vehicle Scans)
 router.get('/all', async (req, res) => {
     try {
-        // Get visitor logs - FIXED: Use correct field names
+        // Get visitor logs
         const visitors = await Visitor.find()
             .sort({ entryTime: -1, createdAt: -1 })
             .limit(100);
@@ -135,7 +139,7 @@ router.get('/all', async (req, res) => {
             hostName: v.residentToVisit || 'Unknown'
         }));
         
-        // Get panic alerts - FIXED: Use correct field names
+        // Get panic alerts
         const panics = await Panic.find()
             .sort({ createdAt: -1 })
             .limit(100);
@@ -154,7 +158,7 @@ router.get('/all', async (req, res) => {
             blockLot: p.blockLot
         }));
         
-        // Get vehicle scan logs
+        // Get vehicle scan logs from memory
         const formattedVehicleScans = vehicleScanLogs.map(v => ({ 
             type: 'VEHICLE_SCAN',
             id: v._id || v.id,
@@ -162,7 +166,7 @@ router.get('/all', async (req, res) => {
             details: formatDetails(v, 'VEHICLE_SCAN'),
             status: v.status || 'APPROVED & AUTHORIZED',
             timestamp: v.scanTimestamp || v.timestamp || v.createdAt,
-            formattedTime: formatTimestamp(new Date(v.scanTimestamp || v.timestamp || v.createdAt)),
+            formattedTime: formatTimestamp(v.scanTimestamp || v.timestamp || v.createdAt),
             plateNumber: v.plateNumber,
             ownerName: v.ownerName,
             vehicleType: v.vehicleType
@@ -240,9 +244,24 @@ router.get('/recent', async (req, res) => {
         });
         
         let recentLogs = [
-            ...recentVisitors.map(v => ({ type: 'VISITOR', name: v.visitorName, timestamp: v.entryTime, formattedTime: formatTimestamp(v.entryTime) })),
-            ...recentPanics.map(p => ({ type: 'PANIC', name: p.residentName, timestamp: p.createdAt, formattedTime: formatTimestamp(p.createdAt) })),
-            ...recentVehicleScans.map(v => ({ type: 'VEHICLE_SCAN', name: v.ownerName, timestamp: v.scanTimestamp, formattedTime: formatTimestamp(new Date(v.scanTimestamp)) }))
+            ...recentVisitors.map(v => ({ 
+                type: 'VISITOR', 
+                name: v.visitorName, 
+                timestamp: v.entryTime, 
+                formattedTime: formatTimestamp(v.entryTime) 
+            })),
+            ...recentPanics.map(p => ({ 
+                type: 'PANIC', 
+                name: p.residentName, 
+                timestamp: p.createdAt, 
+                formattedTime: formatTimestamp(p.createdAt) 
+            })),
+            ...recentVehicleScans.map(v => ({ 
+                type: 'VEHICLE_SCAN', 
+                name: v.ownerName, 
+                timestamp: v.scanTimestamp, 
+                formattedTime: formatTimestamp(v.scanTimestamp) 
+            }))
         ];
         
         recentLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
