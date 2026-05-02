@@ -10,13 +10,23 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 // ==========================================
 // 0. CLOUDINARY & MULTER CONFIGURATION
 // ==========================================
-// This MUST stay at the top so 'upload' is defined before routes
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// Storage for facility images (for the facility itself)
+const facilityImageStorage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'facility_images',
+        allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+        transformation: [{ width: 800, height: 600, crop: 'limit' }]
+    },
+});
+
+// Storage for booking proofs
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -24,6 +34,11 @@ const storage = new CloudinaryStorage({
         allowed_formats: ['jpg', 'png', 'jpeg'],
         transformation: [{ width: 1000, crop: 'limit' }] 
     },
+});
+
+const uploadFacilityImage = multer({ 
+    storage: facilityImageStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 const upload = multer({ 
@@ -97,11 +112,62 @@ router.delete('/delete/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 5. REVIEW BOOKING (Approve/Reject/Cancel - Admin Only)
+// 5. UPLOAD FACILITY IMAGE (Admin Only)
+// ------------------------------------------------------------
+router.post('/upload-image/:id', protect, restrictTo('ADMIN'), uploadFacilityImage.single('facilityImage'), async (req, res) => {
+    try {
+        const facility = await Facility.findById(req.params.id);
+        
+        if (!facility) {
+            return res.status(404).json({ message: "Facility not found" });
+        }
+        
+        if (req.file) {
+            facility.facilityImageUrl = req.file.path;
+            await facility.save();
+        }
+        
+        res.status(200).json({ 
+            success: true, 
+            message: "Facility image uploaded successfully",
+            facilityImageUrl: facility.facilityImageUrl 
+        });
+    } catch (err) {
+        console.error("Upload image error:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// 6. DELETE FACILITY IMAGE (Admin Only)
+// ------------------------------------------------------------
+router.delete('/delete-image/:id', protect, restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const facility = await Facility.findById(req.params.id);
+        
+        if (!facility) {
+            return res.status(404).json({ message: "Facility not found" });
+        }
+        
+        facility.facilityImageUrl = '';
+        await facility.save();
+        
+        res.status(200).json({ 
+            success: true, 
+            message: "Facility image removed successfully" 
+        });
+    } catch (err) {
+        console.error("Delete image error:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// 7. REVIEW BOOKING (Approve/Reject/Cancel - Admin Only)
 // ------------------------------------------------------------
 router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { status, reason } = req.body; // ✅ Capture reason from admin panel
+        const { status, reason } = req.body;
 
         if (!status) {
             return res.status(400).json({ error: "No status provided." });
@@ -111,7 +177,7 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
             req.params.id,
             { 
                 status: status.toUpperCase(),
-                reason: reason || "" // ✅ Save the reason provided by admin
+                reason: reason || ""
             }, 
             { new: true, runValidators: true }
         );
@@ -127,7 +193,7 @@ router.patch('/review/:id', protect, restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 6. SUBMIT BOOKING (From Mobile Phone)
+// 8. SUBMIT BOOKING (From Mobile Phone)
 // ------------------------------------------------------------
 router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) => {
     try {
@@ -157,7 +223,7 @@ router.post('/book', upload.single('proofOfPayment'), protect, async (req, res) 
 });
 
 // ------------------------------------------------------------
-// 7. DELETE/CANCEL BOOKING
+// 9. DELETE/CANCEL BOOKING
 // ------------------------------------------------------------
 router.delete('/bookings/:id', protect, async (req, res) => {
     try {
@@ -169,7 +235,7 @@ router.delete('/bookings/:id', protect, async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 8. UPDATE FACILITY RATE & CAPACITY (Admin Only)
+// 10. UPDATE FACILITY RATE & CAPACITY (Admin Only)
 // ------------------------------------------------------------
 router.patch('/update/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
