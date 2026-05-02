@@ -31,43 +31,33 @@ const userSchema = new mongoose.Schema(
         resetPasswordOTP: { type: String, default: null },
         resetPasswordExpires: { type: Date, default: null },
         
-        // Original Owner fields
+        // Original Owner fields for TENANT
         originalOwnerName: { type: String, default: '' },
         originalOwnerContact: { type: String, default: '' },
         originalOwnerEmail: { type: String, default: '' },
         displayName: { type: String, default: '' },
+        
+        // Additional fields (optional, remove if causing issues)
         linkedToOwnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         moveInDate: { type: Date, default: null },
         leaseStartDate: { type: Date, default: null },
         leaseEndDate: { type: Date, default: null },
         monthlyRent: { type: Number, default: 0 },
-        notes: { type: String, default: '' },
-        emergencyContactName: { type: String, default: '' },
-        emergencyContactNumber: { type: String, default: '' },
-        emergencyContactRelation: { type: String, default: '' },
-        isPrimary: { type: Boolean, default: true },
-        linkedToPrimaryId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
+        notes: { type: String, default: '' }
     },
     { timestamps: true }
 );
 
-// Create indexes
+// ✅ NO PRE-SAVE MIDDLEWARE - Comment out or delete any userSchema.pre() lines
+// DO NOT add any userSchema.pre('save', ...) here
+
+// Simple indexes
 userSchema.index({ email: 1 });
 userSchema.index({ blockLot: 1 });
 userSchema.index({ type: 1 });
 userSchema.index({ status: 1 });
 
-// ✅ SIMPLE PRE-SAVE MIDDLEWARE - NO EXTRA LOGIC
-userSchema.pre('save', function(next) {
-    next();
-});
-
-// Virtual fields - REMOVED to simplify (add back later if needed)
-// userSchema.virtual('fullAddress').get(function() {
-//     return this.blockLot || 'Address not set';
-// });
-
-// Simple methods
+// Simple methods (no middleware)
 userSchema.methods.isTenant = function() {
     return this.type === 'TENANT';
 };
@@ -75,5 +65,7 @@ userSchema.methods.isTenant = function() {
 userSchema.methods.isOwner = function() {
     return this.type === 'OWNER';
 };
+
+// ✅ NO virtual fields that might cause issues
 
 module.exports = mongoose.model('User', userSchema);

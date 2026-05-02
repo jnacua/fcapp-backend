@@ -10,10 +10,10 @@ const path = require('path');
 const jwt = require('jsonwebtoken'); 
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// ✅ Import controller for profile picture and password logic
+// Import controller for profile picture and password logic
 const authController = require('../controllers/authController'); 
 
-// 🚀 STARTUP DEBUGGING
+// STARTUP DEBUGGING
 console.log("--- 🛠️ SERVER BOOT: Checking authController ---");
 if (authController && authController.updateProfilePicture) {
     console.log("✅ DEBUG: authController.updateProfilePicture is ready!");
@@ -30,7 +30,6 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Storage Engine for Registration Proofs (ID/Bills)
 const residencyStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -40,7 +39,6 @@ const residencyStorage = new CloudinaryStorage({
     },
 });
 
-// Storage Engine for User Profile Pictures (Circular Avatars)
 const profilePicStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -59,15 +57,12 @@ const uploadProfile = multer({ storage: profilePicStorage });
 // 1. REGISTRATION & LOGIN
 // ==========================================
 
-// ✅ FIXED: Added JSON parser for non-file registration
 router.post('/register', async (req, res) => {
     try {
-        // Check if it's multipart form data (has file) or JSON
         const isMultipart = req.is('multipart/form-data');
         let requestData;
         
         if (isMultipart) {
-            // Handle multipart form data (with file upload)
             await new Promise((resolve, reject) => {
                 uploadProof.single('proofImage')(req, res, (err) => {
                     if (err) reject(err);
@@ -76,7 +71,6 @@ router.post('/register', async (req, res) => {
             });
             requestData = req.body;
         } else {
-            // Handle JSON data (from admin panel)
             requestData = req.body;
         }
         
@@ -91,28 +85,23 @@ router.post('/register', async (req, res) => {
             originalOwnerName,
             originalOwnerContact,
             originalOwnerEmail,
-            displayName,
             role
         } = requestData;
 
         console.log("📝 Registration request:", { email, name, type, originalOwnerName });
 
-        // Validate email
         if (!email) {
             return res.status(400).json({ message: "Email is required" });
         }
 
-        // Check if user exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({ message: "Email already registered" });
         }
 
-        // Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password || 'Password123!', salt);
 
-        // Prepare user data
         const userData = {
             email: email.toLowerCase(),
             password: hashedPassword,
@@ -122,15 +111,15 @@ router.post('/register', async (req, res) => {
             role: role || 'resident', 
             status: status || 'pending',
             type: type ? type.toUpperCase() : 'OWNER',
-            proofOfResidencyPath: isMultipart && req.file ? req.file.path : null 
+            proofOfResidencyPath: isMultipart && req.file ? req.file.path : null
         };
 
-        // ✅ Add original owner fields for TENANT
+        // Add original owner fields for TENANT
         if (userData.type === 'TENANT') {
             userData.originalOwnerName = originalOwnerName || '';
             userData.originalOwnerContact = originalOwnerContact || '';
             userData.originalOwnerEmail = originalOwnerEmail ? originalOwnerEmail.toLowerCase() : '';
-            userData.displayName = displayName || `${name} (Tenant of ${originalOwnerName || 'Unknown'})`;
+            userData.displayName = `${name} (Tenant of ${originalOwnerName || 'Unknown'})`;
         } else {
             userData.displayName = name || '';
         }
@@ -138,7 +127,6 @@ router.post('/register', async (req, res) => {
         const newUser = new User(userData);
         await newUser.save();
 
-        // Create audit log if admin added active user
         if (status === 'active') {
             await Audit.create({
                 adminName: "ADMIN", 
@@ -149,7 +137,6 @@ router.post('/register', async (req, res) => {
 
         console.log(`✅ User Registered: ${newUser.email} (${newUser.type})`);
         
-        // Generate token for response
         const token = jwt.sign(
             { id: newUser._id, role: newUser.role }, 
             process.env.JWT_SECRET || 'lebronjames23', 
@@ -200,7 +187,7 @@ router.post('/login', async (req, res) => {
             if (status === 'pending') {
                 return res.status(403).json({ message: "Wait for admin approval" });
             }
-            if (status === 'rejected' || status === 'archived') {
+            if (status === 'rejected' || status === 'archived')) {
                 return res.status(403).json({ message: "Account inactive. Contact admin." });
             }
         }
@@ -241,7 +228,6 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// ✅ Get Current User Profile
 router.get('/me', protect, authController.getMe);
 
 // ==========================================
@@ -300,7 +286,6 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
             role: role ? role.toLowerCase() : undefined
         };
         
-        // ✅ Update original owner fields for tenants
         if (type === 'TENANT') {
             if (originalOwnerName !== undefined) updateData.originalOwnerName = originalOwnerName;
             if (originalOwnerContact !== undefined) updateData.originalOwnerContact = originalOwnerContact;
