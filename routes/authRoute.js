@@ -187,7 +187,8 @@ router.post('/login', async (req, res) => {
             if (status === 'pending') {
                 return res.status(403).json({ message: "Wait for admin approval" });
             }
-            if (status === 'rejected' || status === 'archived')) {
+            // ✅ FIXED: Removed the extra parenthesis
+            if (status === 'rejected' || status === 'archived') {
                 return res.status(403).json({ message: "Account inactive. Contact admin." });
             }
         }
