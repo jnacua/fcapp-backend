@@ -57,7 +57,7 @@ userSchema.index({ blockLot: 1 });
 userSchema.index({ type: 1 });
 userSchema.index({ status: 1 });
 
-// ✅ FIXED: Pre-save middleware - make sure next is called properly
+// ✅ FIXED: Pre-save middleware - NO try-catch that might interfere
 userSchema.pre('save', function(next) {
     // Set displayName based on tenant or owner
     if (this.type === 'TENANT' && this.originalOwnerName && this.originalOwnerName !== '') {
@@ -65,7 +65,7 @@ userSchema.pre('save', function(next) {
     } else if (this.name) {
         this.displayName = this.name;
     }
-    // Always call next() to continue the save operation
+    // CRITICAL: Always call next()
     next();
 });
 
