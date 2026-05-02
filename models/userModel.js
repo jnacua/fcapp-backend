@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema(
         resetPasswordOTP: { type: String },
         resetPasswordExpires: { type: Date },
         
-        // ✅ Original Owner fields (for TENANT type users)
+        // Original Owner fields (for TENANT type users)
         originalOwnerName: { 
             type: String, 
             default: '',
@@ -54,56 +54,38 @@ const userSchema = new mongoose.Schema(
             lowercase: true
         },
         
-        // ✅ Display name that combines tenant and original owner
+        // Display name that combines tenant and original owner
         displayName: { 
             type: String, 
             default: '',
             trim: true 
         },
         
-        // ✅ For linking tenant to original owner (reference to the owner user document)
+        // For linking tenant to original owner
         linkedToOwnerId: { 
             type: mongoose.Schema.Types.ObjectId, 
             ref: 'User',
             default: null 
         },
         
-        // ✅ Additional fields for better tenant management
-        moveInDate: { 
-            type: Date, 
-            default: null 
-        },
-        leaseStartDate: { 
-            type: Date, 
-            default: null 
-        },
-        leaseEndDate: { 
-            type: Date, 
-            default: null 
-        },
-        monthlyRent: { 
-            type: Number, 
-            default: 0 
-        },
+        // Additional fields for tenant management
+        moveInDate: { type: Date, default: null },
+        leaseStartDate: { type: Date, default: null },
+        leaseEndDate: { type: Date, default: null },
+        monthlyRent: { type: Number, default: 0 },
         
-        // ✅ Notes about the resident
-        notes: { 
-            type: String, 
-            default: '' 
-        },
+        // Notes about the resident
+        notes: { type: String, default: '' },
         
-        // ✅ Emergency contact information
+        // Emergency contact information
         emergencyContactName: { type: String, default: '' },
         emergencyContactNumber: { type: String, default: '' },
         emergencyContactRelation: { type: String, default: '' },
         
-        // ✅ Is this user the primary resident
-        isPrimary: { 
-            type: Boolean, 
-            default: true 
-        },
+        // Is this user the primary resident
+        isPrimary: { type: Boolean, default: true },
         
-        // ✅ For family members linked to primary resident
+        // For family members linked to primary resident
         linkedToPrimaryId: { 
             type: mongoose.Schema.Types.ObjectId, 
             ref: 'User',
@@ -145,7 +127,7 @@ userSchema.methods.isOwner = function() {
     return this.type === 'OWNER';
 };
 
-// ✅ Method to get tenant info (if this is an owner, get all tenants)
+// ✅ Method to get tenant info
 userSchema.methods.getTenantInfo = function() {
     if (this.type === 'TENANT') {
         return {
@@ -174,7 +156,7 @@ userSchema.statics.findTenantsByBlockLot = function(blockLot) {
     });
 };
 
-// ✅ Pre-save middleware to auto-generate displayName
+// ✅ FIXED: Pre-save middleware - removed 'next' parameter since we don't need it
 userSchema.pre('save', function(next) {
     if (this.type === 'TENANT' && this.originalOwnerName) {
         this.displayName = `${this.name} (Tenant of ${this.originalOwnerName})`;
