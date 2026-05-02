@@ -59,32 +59,86 @@ const uploadProfile = multer({ storage: profilePicStorage });
 // 1. REGISTRATION & LOGIN
 // ==========================================
 
-router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
+// ✅ FIXED: Added JSON parser for non-file registration
+router.post('/register', async (req, res) => {
     try {
-        const { email, password, mobileNumber, blockLot, name, status, type } = req.body;
+        // Check if it's multipart form data (has file) or JSON
+        const isMultipart = req.is('multipart/form-data');
+        let requestData;
+        
+        if (isMultipart) {
+            // Handle multipart form data (with file upload)
+            await new Promise((resolve, reject) => {
+                uploadProof.single('proofImage')(req, res, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+            requestData = req.body;
+        } else {
+            // Handle JSON data (from admin panel)
+            requestData = req.body;
+        }
+        
+        const { 
+            email, 
+            password, 
+            mobileNumber, 
+            blockLot, 
+            name, 
+            status, 
+            type,
+            originalOwnerName,
+            originalOwnerContact,
+            originalOwnerEmail,
+            displayName,
+            role
+        } = requestData;
 
-        const existingUser = await User.findOne({ email });
+        console.log("📝 Registration request:", { email, name, type, originalOwnerName });
+
+        // Validate email
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
+
+        // Check if user exists
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({ message: "Email already registered" });
         }
 
+        // Hash password
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(password || 'Password123!', salt);
 
-        const newUser = new User({
-            email,
+        // Prepare user data
+        const userData = {
+            email: email.toLowerCase(),
             password: hashedPassword,
-            mobileNumber,
-            blockLot,
-            name,
-            role: 'resident', 
+            mobileNumber: mobileNumber || '',
+            blockLot: blockLot || '',
+            name: name || '',
+            role: role || 'resident', 
             status: status || 'pending',
-            type: type || 'OWNER', 
-            proofOfResidencyPath: req.file ? req.file.path : null 
-        });
+            type: type ? type.toUpperCase() : 'OWNER',
+            proofOfResidencyPath: isMultipart && req.file ? req.file.path : null 
+        };
 
+        // ✅ Add original owner fields for TENANT
+        if (userData.type === 'TENANT') {
+            userData.originalOwnerName = originalOwnerName || '';
+            userData.originalOwnerContact = originalOwnerContact || '';
+            userData.originalOwnerEmail = originalOwnerEmail ? originalOwnerEmail.toLowerCase() : '';
+            userData.displayName = displayName || `${name} (Tenant of ${originalOwnerName || 'Unknown'})`;
+        } else {
+            userData.displayName = name || '';
+        }
+
+        const newUser = new User(userData);
         await newUser.save();
 
+        // Create audit log if admin added active user
         if (status === 'active') {
             await Audit.create({
                 adminName: "ADMIN", 
@@ -93,10 +147,36 @@ router.post('/register', uploadProof.single('proofImage'), async (req, res) => {
             });
         }
 
-        console.log("✅ User Registered. Proof URL:", newUser.proofOfResidencyPath);
-        return res.status(200).json({ message: "Success", user: newUser });
+        console.log(`✅ User Registered: ${newUser.email} (${newUser.type})`);
+        
+        // Generate token for response
+        const token = jwt.sign(
+            { id: newUser._id, role: newUser.role }, 
+            process.env.JWT_SECRET || 'lebronjames23', 
+            { expiresIn: '30d' }
+        );
+
+        return res.status(200).json({ 
+            message: "Success", 
+            user: {
+                id: newUser._id,
+                name: newUser.name,
+                email: newUser.email,
+                role: newUser.role,
+                type: newUser.type,
+                status: newUser.status,
+                blockLot: newUser.blockLot,
+                mobileNumber: newUser.mobileNumber,
+                originalOwnerName: newUser.originalOwnerName,
+                originalOwnerContact: newUser.originalOwnerContact,
+                originalOwnerEmail: newUser.originalOwnerEmail,
+                displayName: newUser.displayName
+            },
+            token 
+        });
     } catch (err) {
         console.error("❌ Registration Error:", err.message);
+        console.error("Stack:", err.stack);
         return res.status(500).json({ message: "Registration failed", error: err.message });
     }
 });
@@ -144,30 +224,32 @@ router.post('/login', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                type: user.type,
                 blockLot: user.blockLot || 'N/A',
-                profileImage: user.profileImage || null
+                profileImage: user.profileImage || null,
+                mobileNumber: user.mobileNumber,
+                originalOwnerName: user.originalOwnerName,
+                originalOwnerContact: user.originalOwnerContact,
+                originalOwnerEmail: user.originalOwnerEmail,
+                displayName: user.displayName
             } 
         });
 
     } catch (err) {
+        console.error("❌ Login error:", err);
         return res.status(500).json({ message: "Login error" });
     }
 });
 
-// ✅ ADDED: Get Current User Profile
+// ✅ Get Current User Profile
 router.get('/me', protect, authController.getMe);
 
 // ==========================================
-// 2. FORGOT PASSWORD FLOW (ADDED)
+// 2. FORGOT PASSWORD FLOW
 // ==========================================
 
-// ✅ Endpoint to request OTP via email
 router.post('/forgot-password', authController.forgotPassword);
-
-// ✅ Endpoint to verify the 6-digit code
 router.post('/verify-otp', authController.verifyOTP);
-
-// ✅ Endpoint to set the new password
 router.post('/reset-password', authController.resetPassword);
 
 // ==========================================
@@ -197,16 +279,18 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: { $in: ['resident', 'officer'] } })
-            .select('name _id email mobileNumber role blockLot status type proofOfResidencyPath');
+            .select('name _id email mobileNumber role blockLot status type proofOfResidencyPath originalOwnerName originalOwnerContact originalOwnerEmail displayName');
         res.json(users);
     } catch (err) {
+        console.error("❌ Error fetching residents:", err);
         res.status(500).json({ message: "Error fetching residents" });
     }
 });
 
 router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
-        const { name, blockLot, role, mobileNumber, email, type } = req.body;
+        const { name, blockLot, role, mobileNumber, email, type, originalOwnerName, originalOwnerContact, originalOwnerEmail } = req.body;
+        
         const updateData = {
             name,
             blockLot,
@@ -215,12 +299,21 @@ router.patch('/update-resident/:id', protect, restrictTo('ADMIN'), async (req, r
             type: type ? type.toUpperCase() : undefined,
             role: role ? role.toLowerCase() : undefined
         };
+        
+        // ✅ Update original owner fields for tenants
+        if (type === 'TENANT') {
+            if (originalOwnerName !== undefined) updateData.originalOwnerName = originalOwnerName;
+            if (originalOwnerContact !== undefined) updateData.originalOwnerContact = originalOwnerContact;
+            if (originalOwnerEmail !== undefined) updateData.originalOwnerEmail = originalOwnerEmail;
+            updateData.displayName = `${name} (Tenant of ${originalOwnerName || 'Unknown'})`;
+        }
 
         const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
         if (!user) return res.status(404).json({ message: "Resident not found" });
 
         res.status(200).json({ message: "Resident updated successfully", user });
     } catch (err) {
+        console.error("❌ Update resident error:", err);
         res.status(400).json({ error: err.message });
     }
 });
