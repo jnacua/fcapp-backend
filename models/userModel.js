@@ -57,32 +57,17 @@ userSchema.index({ blockLot: 1 });
 userSchema.index({ type: 1 });
 userSchema.index({ status: 1 });
 
-// ✅ FIXED: Pre-save middleware - NO try-catch that might interfere
+// ✅ SIMPLE PRE-SAVE MIDDLEWARE - NO EXTRA LOGIC
 userSchema.pre('save', function(next) {
-    // Set displayName based on tenant or owner
-    if (this.type === 'TENANT' && this.originalOwnerName && this.originalOwnerName !== '') {
-        this.displayName = `${this.name} (Tenant of ${this.originalOwnerName})`;
-    } else if (this.name) {
-        this.displayName = this.name;
-    }
-    // CRITICAL: Always call next()
     next();
 });
 
-// Virtual fields
-userSchema.virtual('fullAddress').get(function() {
-    return this.blockLot || 'Address not set';
-});
+// Virtual fields - REMOVED to simplify (add back later if needed)
+// userSchema.virtual('fullAddress').get(function() {
+//     return this.blockLot || 'Address not set';
+// });
 
-userSchema.virtual('fullName').get(function() {
-    if (this.displayName) return this.displayName;
-    if (this.type === 'TENANT' && this.originalOwnerName) {
-        return `${this.name} (Tenant of ${this.originalOwnerName})`;
-    }
-    return this.name || 'Unknown';
-});
-
-// Methods
+// Simple methods
 userSchema.methods.isTenant = function() {
     return this.type === 'TENANT';
 };
