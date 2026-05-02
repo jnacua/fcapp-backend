@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
 const Audit = require('../models/auditModel'); 
+const BlockLot = require('../models/blockLotModel');
 const bcrypt = require('bcryptjs'); 
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
@@ -78,7 +79,8 @@ router.post('/register', async (req, res) => {
             email, 
             password, 
             mobileNumber, 
-            blockLot, 
+            block,      // ✅ Changed from blockLot to block
+            lot,        // ✅ New field: lot number
             name, 
             status, 
             type,
@@ -88,25 +90,54 @@ router.post('/register', async (req, res) => {
             role
         } = requestData;
 
-        console.log("📝 Registration request:", { email, name, type, originalOwnerName });
+        console.log("📝 Registration request:", { email, name, type, block, lot });
 
+        // Validate email
         if (!email) {
             return res.status(400).json({ message: "Email is required" });
         }
 
+        // ✅ Validate block and lot
+        if (!block || !lot) {
+            return res.status(400).json({ message: "Block and Lot are required" });
+        }
+
+        // Check if user exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({ message: "Email already registered" });
         }
 
+        // ✅ Check if block/lot is available
+        const blockLotRecord = await BlockLot.findOne({ 
+            blockNumber: block, 
+            lotNumber: lot 
+        });
+        
+        if (!blockLotRecord) {
+            return res.status(400).json({ message: "Invalid block/lot combination" });
+        }
+        
+        if (blockLotRecord.isOccupied) {
+            return res.status(400).json({ 
+                message: "This block and lot is already occupied. Please contact the administrator if this is an error." 
+            });
+        }
+
+        // Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password || 'Password123!', salt);
 
+        // Create blockLot string
+        const blockLotString = `Block ${block}, Lot ${lot}`;
+
+        // Prepare user data
         const userData = {
             email: email.toLowerCase(),
             password: hashedPassword,
             mobileNumber: mobileNumber || '',
-            blockLot: blockLot || '',
+            blockLot: blockLotString,
+            blockLotId: blockLotRecord._id,  // ✅ Link to BlockLot
             name: name || '',
             role: role || 'resident', 
             status: status || 'pending',
@@ -127,15 +158,22 @@ router.post('/register', async (req, res) => {
         const newUser = new User(userData);
         await newUser.save();
 
+        // ✅ Mark blockLot as occupied
+        blockLotRecord.isOccupied = true;
+        blockLotRecord.occupantId = newUser._id;
+        blockLotRecord.occupantName = newUser.name;
+        await blockLotRecord.save();
+
+        // Create audit log if admin added active user
         if (status === 'active') {
             await Audit.create({
                 adminName: "ADMIN", 
                 action: "MANUAL RESIDENT ADD",
-                details: `Admin manually added active resident: ${name} (${email})`
+                details: `Admin manually added active resident: ${name} (${email}) at ${blockLotString}`
             });
         }
 
-        console.log(`✅ User Registered: ${newUser.email} (${newUser.type})`);
+        console.log(`✅ User Registered: ${newUser.email} (${newUser.type}) at ${blockLotString}`);
         
         const token = jwt.sign(
             { id: newUser._id, role: newUser.role }, 
@@ -153,6 +191,7 @@ router.post('/register', async (req, res) => {
                 type: newUser.type,
                 status: newUser.status,
                 blockLot: newUser.blockLot,
+                blockLotId: newUser.blockLotId,
                 mobileNumber: newUser.mobileNumber,
                 originalOwnerName: newUser.originalOwnerName,
                 originalOwnerContact: newUser.originalOwnerContact,
@@ -187,7 +226,6 @@ router.post('/login', async (req, res) => {
             if (status === 'pending') {
                 return res.status(403).json({ message: "Wait for admin approval" });
             }
-            // ✅ FIXED: Removed the extra parenthesis
             if (status === 'rejected' || status === 'archived') {
                 return res.status(403).json({ message: "Account inactive. Contact admin." });
             }
@@ -214,6 +252,7 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 type: user.type,
                 blockLot: user.blockLot || 'N/A',
+                blockLotId: user.blockLotId,
                 profileImage: user.profileImage || null,
                 mobileNumber: user.mobileNumber,
                 originalOwnerName: user.originalOwnerName,
@@ -266,7 +305,7 @@ router.get('/pending-users', protect, restrictTo('ADMIN'), async (req, res) => {
 router.get('/all-users', protect, restrictTo('ADMIN'), async (req, res) => {
     try {
         const users = await User.find({ role: { $in: ['resident', 'officer'] } })
-            .select('name _id email mobileNumber role blockLot status type proofOfResidencyPath originalOwnerName originalOwnerContact originalOwnerEmail displayName');
+            .select('name _id email mobileNumber role blockLot blockLotId status type proofOfResidencyPath originalOwnerName originalOwnerContact originalOwnerEmail displayName');
         res.json(users);
     } catch (err) {
         console.error("❌ Error fetching residents:", err);

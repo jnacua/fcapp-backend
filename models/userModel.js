@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema(
         password: { type: String, required: true },
         mobileNumber: { type: String, default: '' },
         blockLot: { type: String, default: '' },
+	blockLotId: { type: mongoose.Schema.Types.ObjectId, ref: 'BlockLot', default: null },
         name: { type: String, default: '' },
         proofOfResidencyPath: { type: String, default: '' }, 
         profileImage: { type: String, default: '' }, 

@@ -6,6 +6,7 @@ const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 
+
 // Route Imports
 const authRoutes = require('./routes/authRoute');
 const announcementRoutes = require('./routes/announcementRoute');
@@ -20,6 +21,7 @@ const paymongoRoutes = require('./routes/paymongoRoutes');
 const dashboardRoutes = require('./routes/dashboardRoute');
 const visitorRoutes = require('./routes/visitorRoute');
 const logRoutes = require('./routes/logRoutes');
+const blockLotRoutes = require('./routes/blockLotRoute');
 
 const app = express();
 const server = http.createServer(app);
@@ -116,6 +118,7 @@ app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visitor', visitorRoutes);
 app.use('/api/logs', logRoutes);
+app.use('/api/blocklots', blockLotRoutes);
 
 // ✅ 404 Handler
 app.use((req, res) => {
