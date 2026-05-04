@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const BlockLot = require('../models/blockLotModel');
 
+console.log("✅ blockLotRoute.js loaded successfully!"); // ✅ ADD THIS LINE
+
 // GET all available (unoccupied) blocks/lots
 router.get('/available', async (req, res) => {
     try {

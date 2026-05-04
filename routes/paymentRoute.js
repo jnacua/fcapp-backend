@@ -50,15 +50,77 @@ router.post(
     paymentController.create
 );
 
-// ✅ FIXED: Route now points directly to our Bulletproof Controller!
+// Send reminder email
 router.post(
     '/send-reminder', 
     auth.restrictTo('ADMIN'), 
     paymentController.sendManualReminder
 );
 
+// Update payment status
 router.put('/update-status/:id', auth.restrictTo('ADMIN'), paymentController.updateStatus);
+
+// ✅ Soft delete (archive) a bill
 router.delete('/:id', auth.restrictTo('ADMIN'), paymentController.deleteBill);
+
+// ✅ Restore archived bill
+router.put('/restore/:id', auth.restrictTo('ADMIN'), paymentController.restoreBill);
+
+// ✅ Get archived bills
+router.get('/archived', auth.restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const archivedBills = await Payment.find({ isArchived: true }).sort({ createdAt: -1 });
+        res.status(200).json(archivedBills);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ Get bills by user
+router.get('/user/:userId', auth.restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const bills = await Payment.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+        res.status(200).json(bills);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ Get bill statistics (for dashboard)
+router.get('/stats', auth.restrictTo('ADMIN'), async (req, res) => {
+    try {
+        const totalBills = await Payment.countDocuments();
+        const paidBills = await Payment.countDocuments({ status: 'PAID' });
+        const unpaidBills = await Payment.countDocuments({ status: 'UNPAID' });
+        const pendingBills = await Payment.countDocuments({ status: 'PENDING' });
+        
+        const totalAmount = await Payment.aggregate([
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        
+        const paidAmount = await Payment.aggregate([
+            { $match: { status: 'PAID' } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        
+        const unpaidAmount = await Payment.aggregate([
+            { $match: { status: 'UNPAID' } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        
+        res.status(200).json({
+            totalBills,
+            paidBills,
+            unpaidBills,
+            pendingBills,
+            totalAmount: totalAmount[0]?.total || 0,
+            paidAmount: paidAmount[0]?.total || 0,
+            unpaidAmount: unpaidAmount[0]?.total || 0
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // --- RESIDENT & ADMIN ---
 router.get('/my-bills', paymentController.getMyBills);
@@ -78,7 +140,6 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
 
         bill.status = 'PENDING';
         bill.transactionNo = transactionNo;
-        // ✅ Store the permanent Cloudinary HTTPS URL
         bill.receiptImagePath = req.file.path; 
         
         await bill.save();
