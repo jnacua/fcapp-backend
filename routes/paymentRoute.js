@@ -126,8 +126,8 @@ router.get('/stats', auth.restrictTo('ADMIN'), async (req, res) => {
 router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
-// ✅ NEW: Bulk pay all monthly dues at once
-router.post('/bulk-pay-monthly', async (req, res) => {
+// ✅ NEW: Bulk pay all monthly dues at once (existing unpaid bills)
+router.post('/bulk-pay-monthly', auth, async (req, res) => {
     try {
         const { billIds, totalAmount } = req.body;
         
@@ -207,6 +207,68 @@ router.post('/bulk-pay-monthly', async (req, res) => {
     }
 });
 
+// ✅ NEW: Full year payment (January to December)
+router.post('/full-year-payment', auth, async (req, res) => {
+    try {
+        const { year, monthlyAmount, months } = req.body;
+        const totalAmount = monthlyAmount * 12;
+        
+        console.log(`📦 Processing full year payment for user ${req.user.id}, year ${year}, amount ${totalAmount}`);
+        
+        // Create metadata for full year payment
+        const paymongoResponse = await axios.post(
+            'https://api.paymongo.com/v1/checkout_sessions',
+            {
+                data: {
+                    attributes: {
+                        amount: Math.round(totalAmount * 100),
+                        currency: "PHP",
+                        description: `Full Year Monthly Dues ${year}`,
+                        statement_descriptor: "FCAPP Yearly Dues",
+                        send_email_receipt: true,
+                        show_description: true,
+                        show_line_items: true,
+                        line_items: [
+                            {
+                                name: `Monthly Dues ${year}`,
+                                quantity: 12,
+                                amount: Math.round(monthlyAmount * 100),
+                                currency: "PHP"
+                            }
+                        ],
+                        payment_method_types: ["gcash", "card", "paymaya"],
+                        success_url: `${process.env.FRONTEND_URL || 'https://your-app.com'}/payment-success?session_id={CHECKOUT_ID}`,
+                        cancel_url: `${process.env.FRONTEND_URL || 'https://your-app.com'}/payment-cancel`,
+                        metadata: {
+                            type: "full_year_payment",
+                            userId: req.user.id,
+                            year: year,
+                            monthlyAmount: monthlyAmount,
+                            months: JSON.stringify(months)
+                        }
+                    }
+                }
+            },
+            {
+                headers: {
+                    'Authorization': `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY + ':').toString('base64')}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        
+        console.log(`✅ Full year checkout session created: ${paymongoResponse.data.data.id}`);
+        
+        res.json({ 
+            checkoutUrl: paymongoResponse.data.data.attributes.checkout_url,
+            sessionId: paymongoResponse.data.data.id
+        });
+    } catch (error) {
+        console.error("Full year payment error:", error.response?.data || error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ✅ UPDATED: Manual receipt uploads now use CLOUDINARY
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
@@ -232,9 +294,5 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
         res.status(500).json({ error: err.message });
     }
 });
-
-// ✅ Webhook handler for bulk payments
-// Add this to your paymentController.paymongoWebhook or handle separately
-// In your webhook handler, look for metadata.billIds to process bulk payments
 
 module.exports = router;

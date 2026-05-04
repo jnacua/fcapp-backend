@@ -53,6 +53,47 @@ const sendReceiptEmail = async (userEmail, billData) => {
   }
 };
 
+// ✅ Full Year Receipt Email Function
+const sendFullYearReceiptEmail = async (userEmail, year, monthlyAmount, months, transactionId) => {
+  const totalAmount = monthlyAmount * 12;
+  const monthsList = months.join(', ');
+  
+  const mailOptions = {
+    from: `"FCAPP Utilities" <nacuapaolo@gmail.com>`,
+    to: userEmail,
+    subject: `Official Receipt - Full Year ${year} Monthly Dues`,
+    html: `
+      <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px; border-radius: 10px;">
+        <div style="background-color: #176F63; color: white; padding: 10px; text-align: center; border-radius: 5px 5px 0 0;">
+          <h2 style="margin:0;">OFFICIAL RECEIPT - FULL YEAR</h2>
+        </div>
+        <div style="padding: 20px;">
+          <p>Hi Resident,</p>
+          <p>Your full year payment for ${year} was successful. Below are your transaction details:</p>
+          <hr style="border: 0; border-top: 1px solid #eee;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Year:</b></td><td>${year}</td></tr>
+            <tr><td style="padding: 8px;"><b>Total Amount Paid:</b></td><td style="color: #176F63;"><b>₱ ${totalAmount.toFixed(2)}</b></td></tr>
+            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Monthly Amount:</b></td><td>₱ ${monthlyAmount.toFixed(2)}</td></tr>
+            <tr><td style="padding: 8px;"><b>Months Covered:</b></td><td>${monthsList}</td></tr>
+            <tr style="background-color: #f9f9f9;"><td style="padding: 8px;"><b>Transaction ID:</b></td><td style="font-size:11px;">${transactionId}</td></tr>
+            <tr><td style="padding: 8px;"><b>Date Paid:</b></td><td>${new Date().toLocaleDateString()}</td></tr>
+          </table>
+          <hr style="border: 0; border-top: 1px solid #eee;">
+          <p style="font-size: 11px; color: #666; text-align: center;">Fiesta Casitas Subdivision Office</p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`📧 Full year receipt sent to: ${userEmail}`);
+  } catch (error) {
+    console.error("📧 Full year receipt email failed:", error.message);
+  }
+};
+
 // ✅ Reusable Reminder Email Function
 const sendReminderEmail = async (userEmail, billData) => {
   const mailOptions = {
@@ -392,7 +433,7 @@ exports.paymongoWebhook = async (req, res) => {
       const sessionData = response.data.data.attributes;
       const metadata = sessionData.metadata || {};
       
-      // ✅ NEW: Handle bulk payment (multiple bills)
+      // ✅ Handle bulk payment (multiple bills)
       if (metadata.type === 'bulk_monthly_dues' && metadata.billIds) {
         const billIds = JSON.parse(metadata.billIds);
         console.log(`📦 Processing bulk payment for ${billIds.length} bills`);
@@ -416,6 +457,68 @@ exports.paymongoWebhook = async (req, res) => {
           if (bill.userId?.email) {
             await sendReceiptEmail(bill.userId.email, bill);
           }
+        }
+      }
+      // ✅ Handle full year payment
+      else if (metadata.type === 'full_year_payment') {
+        const year = parseInt(metadata.year);
+        const monthlyAmount = parseFloat(metadata.monthlyAmount);
+        const months = JSON.parse(metadata.months);
+        const userId = metadata.userId;
+        
+        console.log(`📦 Processing full year payment for year ${year}`);
+        
+        // Get user details
+        const user = await User.findById(userId);
+        
+        // Create bills for all 12 months
+        const billsToCreate = [];
+        for (const month of months) {
+          // Check if bill already exists to avoid duplicates
+          const existingBill = await Payment.findOne({
+            userId: userId,
+            type: "Monthly Dues",
+            month: month,
+            year: year
+          });
+          
+          if (!existingBill) {
+            billsToCreate.push({
+              userId: userId,
+              userName: user?.name || "Resident",
+              type: "Monthly Dues",
+              amount: monthlyAmount,
+              month: month,
+              year: year,
+              status: "PAID",
+              transactionNo: checkoutSessionId,
+              paidAt: new Date(),
+              paymentMethod: "PAYMONGO",
+              isFinalized: true
+            });
+          } else {
+            // If bill exists but not paid, update it
+            if (existingBill.status !== "PAID") {
+              existingBill.status = "PAID";
+              existingBill.transactionNo = checkoutSessionId;
+              existingBill.paidAt = new Date();
+              existingBill.paymentMethod = "PAYMONGO";
+              await existingBill.save();
+            }
+          }
+        }
+        
+        // Insert new bills
+        if (billsToCreate.length > 0) {
+          await Payment.insertMany(billsToCreate);
+          console.log(`✅ Full year payment processed: ${billsToCreate.length} new bills created`);
+        }
+        
+        console.log(`✅ Full year payment completed for ${year}`);
+        
+        // Send receipt email
+        if (user?.email) {
+          await sendFullYearReceiptEmail(user.email, year, monthlyAmount, months, checkoutSessionId);
         }
       }
       // ✅ Handle single bill payment
