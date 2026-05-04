@@ -125,13 +125,31 @@ router.get('/stats', auth.restrictTo('ADMIN'), async (req, res) => {
 });
 
 // ✅ NEW: Get penalty for a specific bill
-router.get('/:id/penalty', auth, async (req, res) => {
+router.get('/:id/penalty', async (req, res) => {
     try {
+        // Get the authenticated user from the token (auth is already applied by router.use)
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+        
+        // Verify token and get user (you may want to move this to a helper function)
+        const jwt = require('jsonwebtoken');
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+            return res.status(401).json({ error: "Invalid token" });
+        }
+        
+        const userId = decoded.id;
+        const userRole = decoded.role;
+        
         const bill = await Payment.findById(req.params.id);
         if (!bill) return res.status(404).json({ error: "Bill not found" });
         
         // Verify ownership or admin
-        if (bill.userId.toString() !== req.user.id && req.user.role !== 'ADMIN') {
+        if (bill.userId.toString() !== userId && userRole !== 'ADMIN') {
             return res.status(403).json({ error: "Unauthorized" });
         }
         
@@ -190,13 +208,22 @@ router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
 // ✅ NEW: Bulk pay all monthly dues at once (existing unpaid bills)
-router.post('/bulk-pay-monthly', (req, res, next) => {
-    // Apply auth middleware manually
-    auth.protect(req, res, () => {
-        next();
-    });
-}, async (req, res) => {
+router.post('/bulk-pay-monthly', async (req, res) => {
     try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+        
+        const jwt = require('jsonwebtoken');
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+            return res.status(401).json({ error: "Invalid token" });
+        }
+        
+        const userId = decoded.id;
         const { billIds, totalAmount } = req.body;
         
         if (!billIds || billIds.length === 0) {
@@ -206,7 +233,7 @@ router.post('/bulk-pay-monthly', (req, res, next) => {
         // Get all bills to verify they belong to the user and are unpaid
         const bills = await Payment.find({
             _id: { $in: billIds },
-            userId: req.user.id,
+            userId: userId,
             status: "UNPAID",
             type: "Monthly Dues"
         });
@@ -275,17 +302,26 @@ router.post('/bulk-pay-monthly', (req, res, next) => {
 });
 
 // ✅ NEW: Full year payment (January to December)
-router.post('/full-year-payment', (req, res, next) => {
-    // Apply auth middleware manually
-    auth.protect(req, res, () => {
-        next();
-    });
-}, async (req, res) => {
+router.post('/full-year-payment', async (req, res) => {
     try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+        
+        const jwt = require('jsonwebtoken');
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+            return res.status(401).json({ error: "Invalid token" });
+        }
+        
+        const userId = decoded.id;
         const { year, monthlyAmount, months } = req.body;
         const totalAmount = monthlyAmount * 12;
         
-        console.log(`📦 Processing full year payment for user ${req.user.id}, year ${year}, amount ${totalAmount}`);
+        console.log(`📦 Processing full year payment for user ${userId}, year ${year}, amount ${totalAmount}`);
         
         // Create metadata for full year payment
         const paymongoResponse = await axios.post(
@@ -313,7 +349,7 @@ router.post('/full-year-payment', (req, res, next) => {
                         cancel_url: `${process.env.FRONTEND_URL || 'https://your-app.com'}/payment-cancel`,
                         metadata: {
                             type: "full_year_payment",
-                            userId: req.user.id,
+                            userId: userId,
                             year: year,
                             monthlyAmount: monthlyAmount,
                             months: JSON.stringify(months)
