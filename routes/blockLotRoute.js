@@ -4,13 +4,11 @@ const BlockLot = require('../models/blockLotModel');
 
 console.log("✅ blockLotRoute.js loaded successfully!");
 
-// ==================== GET ALL BLOCKS/LOTS (NEW) ====================
-router.get('/all', async (req, res) => {
+// ==================== GET ALL BLOCKS/LOTS ====================
+router.get('/blocks/all', async (req, res) => {
     try {
-        const allLots = await BlockLot.find()
-            .sort({ blockNumber: 1, lotNumber: 1 });
+        const allLots = await BlockLot.find().sort({ blockNumber: 1, lotNumber: 1 });
         
-        // Group by block number
         const groupedByBlock = {};
         allLots.forEach(lot => {
             const blockNum = lot.blockNumber;
@@ -32,7 +30,6 @@ router.get('/all', async (req, res) => {
             });
         });
         
-        // Convert to array
         const blocks = Object.values(groupedByBlock);
         res.status(200).json(blocks);
     } catch (err) {
@@ -41,33 +38,8 @@ router.get('/all', async (req, res) => {
     }
 });
 
-// ==================== GET ALL OCCUPIED BLOCKS/LOTS ====================
-router.get('/occupied', async (req, res) => {
-    try {
-        const occupiedLots = await BlockLot.find({ isOccupied: true })
-            .populate('occupantId', 'name email')
-            .sort({ blockNumber: 1, lotNumber: 1 });
-        res.status(200).json(occupiedLots);
-    } catch (err) {
-        console.error("Error fetching occupied lots:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// GET all available (unoccupied) blocks/lots
-router.get('/available', async (req, res) => {
-    try {
-        const availableLots = await BlockLot.find({ isOccupied: false })
-            .sort({ blockNumber: 1, lotNumber: 1 });
-        res.status(200).json(availableLots);
-    } catch (err) {
-        console.error("Error fetching available lots:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ==================== ADD NEW BLOCK (with lots) ====================
-router.post('/block/add', async (req, res) => {
+// ==================== ADD NEW BLOCK ====================
+router.post('/blocks/add', async (req, res) => {
     try {
         const { blockNumber, numberOfLots } = req.body;
         
@@ -75,7 +47,6 @@ router.post('/block/add', async (req, res) => {
             return res.status(400).json({ error: "Block number and number of lots required" });
         }
         
-        // Check if block already exists
         const existingBlock = await BlockLot.findOne({ blockNumber: blockNumber.toString() });
         if (existingBlock) {
             return res.status(400).json({ error: "Block already exists" });
@@ -95,8 +66,7 @@ router.post('/block/add', async (req, res) => {
         
         res.status(201).json({
             success: true,
-            message: `Block ${blockNumber} with ${numberOfLots} lots created successfully`,
-            lotsCreated: newLots.length
+            message: `Block ${blockNumber} with ${numberOfLots} lots created successfully`
         });
     } catch (err) {
         console.error("Error adding block:", err);
@@ -104,8 +74,8 @@ router.post('/block/add', async (req, res) => {
     }
 });
 
-// ==================== ADD NEW LOT TO EXISTING BLOCK ====================
-router.post('/lot/add', async (req, res) => {
+// ==================== ADD NEW LOT ====================
+router.post('/lots/add', async (req, res) => {
     try {
         const { blockNumber, lotNumber } = req.body;
         
@@ -113,7 +83,6 @@ router.post('/lot/add', async (req, res) => {
             return res.status(400).json({ error: "Block number and lot number required" });
         }
         
-        // Check if lot already exists
         const existingLot = await BlockLot.findOne({ 
             blockNumber: blockNumber.toString(), 
             lotNumber: lotNumber.toString() 
@@ -134,8 +103,7 @@ router.post('/lot/add', async (req, res) => {
         
         res.status(201).json({
             success: true,
-            message: `Lot ${lotNumber} added to Block ${blockNumber} successfully`,
-            lot: newLot
+            message: `Lot ${lotNumber} added to Block ${blockNumber} successfully`
         });
     } catch (err) {
         console.error("Error adding lot:", err);
@@ -143,8 +111,8 @@ router.post('/lot/add', async (req, res) => {
     }
 });
 
-// ==================== DELETE A BLOCK (all lots in that block) ====================
-router.delete('/block/delete/:blockNumber', async (req, res) => {
+// ==================== DELETE BLOCK ====================
+router.delete('/blocks/delete/:blockNumber', async (req, res) => {
     try {
         const { blockNumber } = req.params;
         
@@ -156,8 +124,7 @@ router.delete('/block/delete/:blockNumber', async (req, res) => {
         
         res.status(200).json({
             success: true,
-            message: `Block ${blockNumber} and all its lots deleted successfully`,
-            deletedCount: result.deletedCount
+            message: `Block ${blockNumber} deleted successfully`
         });
     } catch (err) {
         console.error("Error deleting block:", err);
@@ -165,8 +132,8 @@ router.delete('/block/delete/:blockNumber', async (req, res) => {
     }
 });
 
-// ==================== DELETE A SPECIFIC LOT ====================
-router.delete('/lot/delete/:id', async (req, res) => {
+// ==================== DELETE LOT ====================
+router.delete('/lots/delete/:id', async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -178,7 +145,7 @@ router.delete('/lot/delete/:id', async (req, res) => {
         
         res.status(200).json({
             success: true,
-            message: `Lot ${deletedLot.lotNumber} from Block ${deletedLot.blockNumber} deleted successfully`
+            message: `Lot deleted successfully`
         });
     } catch (err) {
         console.error("Error deleting lot:", err);
@@ -186,63 +153,56 @@ router.delete('/lot/delete/:id', async (req, res) => {
     }
 });
 
-// ==================== ASSIGN RESIDENT TO A LOT ====================
-router.put('/assign/:id', async (req, res) => {
+// GET all available (unoccupied) blocks/lots
+router.get('/available', async (req, res) => {
     try {
-        const { id } = req.params;
-        const { occupantId, occupantName } = req.body;
-        
-        const updatedLot = await BlockLot.findByIdAndUpdate(
-            id,
-            {
-                isOccupied: true,
-                occupantId: occupantId,
-                occupantName: occupantName
-            },
-            { new: true }
-        );
-        
-        if (!updatedLot) {
-            return res.status(404).json({ error: "Lot not found" });
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: `Lot ${updatedLot.lotNumber} assigned successfully`,
-            lot: updatedLot
-        });
+        const availableLots = await BlockLot.find({ isOccupied: false })
+            .sort({ blockNumber: 1, lotNumber: 1 });
+        res.status(200).json(availableLots);
     } catch (err) {
-        console.error("Error assigning lot:", err);
+        console.error("Error fetching available lots:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// ==================== VACATE A LOT ====================
-router.put('/vacate/:id', async (req, res) => {
+// Initialize all blocks and lots (630 lots)
+router.post('/initialize', async (req, res) => {
     try {
-        const { id } = req.params;
+        await BlockLot.deleteMany({});
         
-        const updatedLot = await BlockLot.findByIdAndUpdate(
-            id,
-            {
-                isOccupied: false,
-                occupantId: null,
-                occupantName: ''
-            },
-            { new: true }
-        );
-        
-        if (!updatedLot) {
-            return res.status(404).json({ error: "Lot not found" });
+        const allBlockLots = [];
+
+        for (let block = 1; block <= 31; block++) {
+            for (let lot = 1; lot <= 18; lot++) {
+                allBlockLots.push({
+                    blockNumber: block.toString(),
+                    lotNumber: lot.toString(),
+                    fullAddress: `Block ${block}, Lot ${lot}`,
+                    isOccupied: false
+                });
+            }
+        }
+
+        for (let block = 32; block <= 36; block++) {
+            for (let lot = 1; lot <= 14; lot++) {
+                allBlockLots.push({
+                    blockNumber: block.toString(),
+                    lotNumber: lot.toString(),
+                    fullAddress: `Block ${block}, Lot ${lot}`,
+                    isOccupied: false
+                });
+            }
         }
         
-        res.status(200).json({
+        await BlockLot.insertMany(allBlockLots);
+        
+        res.status(201).json({
             success: true,
-            message: `Lot ${updatedLot.lotNumber} vacated successfully`,
-            lot: updatedLot
+            message: `Created ${allBlockLots.length} block/lot combinations`,
+            totalLots: allBlockLots.length
         });
     } catch (err) {
-        console.error("Error vacating lot:", err);
+        console.error("Error initializing block lots:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -266,50 +226,6 @@ router.get('/check/:block/:lot', async (req, res) => {
         });
     } catch (err) {
         console.error("Error checking block/lot:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Initialize all blocks and lots (630 lots)
-router.post('/initialize', async (req, res) => {
-    try {
-        await BlockLot.deleteMany({});
-        
-        const allBlockLots = [];
-
-        // Blocks 1-31: 18 lots each
-        for (let block = 1; block <= 31; block++) {
-            for (let lot = 1; lot <= 18; lot++) {
-                allBlockLots.push({
-                    blockNumber: block.toString(),
-                    lotNumber: lot.toString(),
-                    fullAddress: `Block ${block}, Lot ${lot}`,
-                    isOccupied: false
-                });
-            }
-        }
-
-        // Blocks 32-36: 14 lots each
-        for (let block = 32; block <= 36; block++) {
-            for (let lot = 1; lot <= 14; lot++) {
-                allBlockLots.push({
-                    blockNumber: block.toString(),
-                    lotNumber: lot.toString(),
-                    fullAddress: `Block ${block}, Lot ${lot}`,
-                    isOccupied: false
-                });
-            }
-        }
-        
-        await BlockLot.insertMany(allBlockLots);
-        
-        res.status(201).json({
-            success: true,
-            message: `Created ${allBlockLots.length} block/lot combinations`,
-            totalLots: allBlockLots.length
-        });
-    } catch (err) {
-        console.error("Error initializing block lots:", err);
         res.status(500).json({ error: err.message });
     }
 });
