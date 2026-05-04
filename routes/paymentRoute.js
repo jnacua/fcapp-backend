@@ -8,6 +8,7 @@ const path = require('path');
 const auth = require('../middleware/authMiddleware'); 
 const paymentController = require('../controllers/paymentController');
 const Payment = require('../models/paymentModel');
+const Setting = require('../models/settingModel'); // ✅ Added for penalty settings
 
 // ==========================================
 // 0. CLOUDINARY CONFIGURATION
@@ -119,6 +120,67 @@ router.get('/stats', auth.restrictTo('ADMIN'), async (req, res) => {
             unpaidAmount: unpaidAmount[0]?.total || 0
         });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ NEW: Get penalty for a specific bill
+router.get('/:id/penalty', auth, async (req, res) => {
+    try {
+        const bill = await Payment.findById(req.params.id);
+        if (!bill) return res.status(404).json({ error: "Bill not found" });
+        
+        // Verify ownership or admin
+        if (bill.userId.toString() !== req.user.id && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ error: "Unauthorized" });
+        }
+        
+        // Get penalty settings from database
+        const penaltyAmountSetting = await Setting.findOne({ key: 'penalty_amount' });
+        const penaltyDaysSetting = await Setting.findOne({ key: 'penalty_days' });
+        
+        const penaltyAmount = parseFloat(penaltyAmountSetting?.value || '50');
+        const penaltyDays = parseInt(penaltyDaysSetting?.value || '25');
+        
+        // Calculate if penalty should apply
+        const today = new Date();
+        const dueDate = new Date(bill.dueDate);
+        let penalty = 0;
+        let daysOverdue = 0;
+        let shouldApplyPenalty = false;
+        
+        if (today > dueDate && bill.status !== 'PAID') {
+            daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+            
+            if (daysOverdue >= penaltyDays) {
+                shouldApplyPenalty = true;
+                penalty = penaltyAmount;
+            }
+        }
+        
+        // Update bill with penalty info
+        if (shouldApplyPenalty && !bill.isPenaltyApplied) {
+            bill.penaltyAmount = penalty;
+            bill.isPenaltyApplied = true;
+            bill.penaltyAppliedDate = today;
+            bill.daysOverdue = daysOverdue;
+            await bill.save();
+        }
+        
+        res.json({
+            billId: bill._id,
+            originalAmount: bill.amount,
+            penaltyAmount: bill.penaltyAmount || 0,
+            totalAmount: bill.amount + (bill.penaltyAmount || 0),
+            daysOverdue: daysOverdue,
+            penaltyThreshold: penaltyDays,
+            penaltyFee: penaltyAmount,
+            shouldApplyPenalty: shouldApplyPenalty,
+            dueDate: bill.dueDate,
+            status: bill.status
+        });
+    } catch (err) {
+        console.error("Penalty calculation error:", err);
         res.status(500).json({ error: err.message });
     }
 });
