@@ -390,22 +390,53 @@ exports.paymongoWebhook = async (req, res) => {
       });
       
       const sessionData = response.data.data.attributes;
-      const billId = sessionData.reference_number || sessionData.metadata?.billId;
+      const metadata = sessionData.metadata || {};
       
-      if (billId) {
-        const updated = await Payment.findByIdAndUpdate(
-          billId, 
+      // ✅ NEW: Handle bulk payment (multiple bills)
+      if (metadata.type === 'bulk_monthly_dues' && metadata.billIds) {
+        const billIds = JSON.parse(metadata.billIds);
+        console.log(`📦 Processing bulk payment for ${billIds.length} bills`);
+        
+        // Update all bills to PAID status
+        const updatedBills = await Payment.updateMany(
+          { _id: { $in: billIds } },
           { 
             status: 'PAID', 
             transactionNo: checkoutSessionId, 
             paidAt: new Date(),
             paymentMethod: 'PAYMONGO'
-          }, 
-          { new: true }
-        ).populate('userId'); 
+          }
+        );
         
-        if (updated && updated.userId?.email) {
-          await sendReceiptEmail(updated.userId.email, updated);
+        console.log(`✅ Bulk payment processed: ${updatedBills.modifiedCount} bills updated`);
+        
+        // Send individual receipts for each bill
+        const bills = await Payment.find({ _id: { $in: billIds } }).populate('userId');
+        for (const bill of bills) {
+          if (bill.userId?.email) {
+            await sendReceiptEmail(bill.userId.email, bill);
+          }
+        }
+      }
+      // ✅ Handle single bill payment
+      else {
+        const billId = sessionData.reference_number || metadata.billId;
+        
+        if (billId) {
+          const updated = await Payment.findByIdAndUpdate(
+            billId, 
+            { 
+              status: 'PAID', 
+              transactionNo: checkoutSessionId, 
+              paidAt: new Date(),
+              paymentMethod: 'PAYMONGO'
+            }, 
+            { new: true }
+          ).populate('userId'); 
+          
+          if (updated && updated.userId?.email) {
+            await sendReceiptEmail(updated.userId.email, updated);
+          }
         }
       }
     }

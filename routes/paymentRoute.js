@@ -126,6 +126,87 @@ router.get('/stats', auth.restrictTo('ADMIN'), async (req, res) => {
 router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
+// ✅ NEW: Bulk pay all monthly dues at once
+router.post('/bulk-pay-monthly', async (req, res) => {
+    try {
+        const { billIds, totalAmount } = req.body;
+        
+        if (!billIds || billIds.length === 0) {
+            return res.status(400).json({ error: "No bills selected" });
+        }
+        
+        // Get all bills to verify they belong to the user and are unpaid
+        const bills = await Payment.find({
+            _id: { $in: billIds },
+            userId: req.user.id,
+            status: "UNPAID",
+            type: "Monthly Dues"
+        });
+        
+        if (bills.length !== billIds.length) {
+            return res.status(400).json({ error: "Some bills are invalid or already paid" });
+        }
+        
+        // Calculate total amount if not provided
+        const calculatedTotal = bills.reduce((sum, bill) => sum + (bill.amount || 0), 0);
+        const finalTotal = totalAmount || calculatedTotal;
+        
+        // Create single PayMongo checkout session
+        const axios = require('axios');
+        const paymongoResponse = await axios.post(
+            'https://api.paymongo.com/v1/checkout_sessions',
+            {
+                data: {
+                    attributes: {
+                        amount: Math.round(finalTotal * 100),
+                        currency: "PHP",
+                        description: `Payment for ${billIds.length} monthly due(s)`,
+                        statement_descriptor: "FCAPP Dues",
+                        send_email_receipt: true,
+                        show_description: true,
+                        show_line_items: true,
+                        line_items: [
+                            {
+                                name: "Monthly Dues",
+                                quantity: billIds.length,
+                                amount: Math.round((finalTotal * 100) / billIds.length),
+                                currency: "PHP"
+                            }
+                        ],
+                        payment_method_types: ["gcash", "card", "paymaya"],
+                        success_url: `${process.env.FRONTEND_URL || 'https://your-app.com'}/payment-success?session_id={CHECKOUT_ID}`,
+                        cancel_url: `${process.env.FRONTEND_URL || 'https://your-app.com'}/payment-cancel`,
+                        metadata: {
+                            billIds: JSON.stringify(billIds),
+                            type: "bulk_monthly_dues"
+                        }
+                    }
+                }
+            },
+            {
+                headers: {
+                    'Authorization': `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY + ':').toString('base64')}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        
+        // Update bills to PENDING status
+        await Payment.updateMany(
+            { _id: { $in: billIds } },
+            { status: "PENDING" }
+        );
+        
+        res.json({ 
+            checkoutUrl: paymongoResponse.data.data.attributes.checkout_url,
+            sessionId: paymongoResponse.data.data.id
+        });
+    } catch (error) {
+        console.error("Bulk pay error:", error.response?.data || error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ✅ UPDATED: Manual receipt uploads now use CLOUDINARY
 router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res) => {
     try {
@@ -151,5 +232,9 @@ router.post('/upload-receipt/:billId', upload.single('receipt'), async (req, res
         res.status(500).json({ error: err.message });
     }
 });
+
+// ✅ Webhook handler for bulk payments
+// Add this to your paymentController.paymongoWebhook or handle separately
+// In your webhook handler, look for metadata.billIds to process bulk payments
 
 module.exports = router;
