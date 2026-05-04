@@ -110,8 +110,10 @@ async function getPreviousReading(userId, currentMonth, currentYear) {
     }).sort({ createdAt: -1 });
     
     if (previousBill && previousBill.currReading) {
+      console.log(`✅ Previous reading found for ${userId}: ${previousBill.currReading} m³`);
       return previousBill.currReading;
     }
+    console.log(`⚠️ No previous reading found for ${userId}, starting from 0`);
     return 0;
   } catch (error) {
     console.error("Error fetching previous reading:", error);
@@ -123,7 +125,17 @@ async function getPreviousReading(userId, currentMonth, currentYear) {
  * Calculate Manila Water Bill based on consumption
  */
 function calculateManilaWaterBill(consumption) {
-  // Manila Water rate tiers (per cubic meter)
+  if (consumption <= 0) {
+    return {
+      waterCharge: 0,
+      basicServiceCharge: 50.00,
+      environmentalFee: 0,
+      sewerFee: 0,
+      vat: 0,
+      totalAmount: 50.00
+    };
+  }
+  
   let waterCharge = 0;
   let remaining = consumption;
   
@@ -165,6 +177,16 @@ function calculateManilaWaterBill(consumption) {
   const vat = subtotal * 0.12;
   const totalAmount = subtotal + vat;
   
+  console.log("=== WATER BILL CALCULATION ===");
+  console.log(`Consumption: ${consumption} m³`);
+  console.log(`Water Charge: ₱${waterCharge.toFixed(2)}`);
+  console.log(`Basic Service Charge: ₱${basicServiceCharge.toFixed(2)}`);
+  console.log(`Environmental Fee (20%): ₱${environmentalFee.toFixed(2)}`);
+  console.log(`Sewer Fee (30%): ₱${sewerFee.toFixed(2)}`);
+  console.log(`Subtotal: ₱${subtotal.toFixed(2)}`);
+  console.log(`VAT (12%): ₱${vat.toFixed(2)}`);
+  console.log(`TOTAL: ₱${totalAmount.toFixed(2)}`);
+  
   return {
     waterCharge: parseFloat(waterCharge.toFixed(2)),
     basicServiceCharge: 50.00,
@@ -186,16 +208,46 @@ exports.getAll = async (req, res) => {
   }
 };
 
-// ✅ UPDATED: Create bill with Manila Water calculation and auto-fetch previous reading
+// ✅ FIXED: Create bill with proper values from frontend
 exports.create = async (req, res) => {
   try {
-    const { userId, userName, amount, type, month, year, currReading, ratePerCubic, dueDate, meterNumber } = req.body;
+    const { 
+      userId, 
+      userName, 
+      amount, 
+      type, 
+      month, 
+      year, 
+      prevReading,
+      currReading,
+      consumption,
+      ratePerCubic,
+      waterCharge,
+      basicServiceCharge,
+      environmentalFee,
+      sewerFee,
+      vat,
+      dueDate,
+      meterNumber 
+    } = req.body;
+    
+    console.log("📝 Creating bill with data:", {
+      userId,
+      userName,
+      type,
+      month,
+      year,
+      prevReading,
+      currReading,
+      consumption,
+      amount
+    });
     
     if (!userId || userId === "null") {
       return res.status(400).json({ message: "User ID is required" });
     }
     
-    const billType = type || "Monthly Dues";
+    const billType = type || "Water Bill";
     const billMonth = month || new Date().toLocaleString('default', { month: 'long' });
     const billYear = year || new Date().getFullYear();
     
@@ -214,24 +266,19 @@ exports.create = async (req, res) => {
     }
     
     let finalAmount = amount || 0;
-    let consumption = 0;
-    let prevReadingValue = 0;
+    let finalPrevReading = prevReading || 0;
+    let finalCurrReading = currReading || 0;
+    let finalConsumption = consumption || 0;
     let waterBillDetails = null;
     
-    if (billType.toLowerCase().includes('water')) {
-      // Get previous reading
-      const monthIndex = new Date(Date.parse(billMonth + " 1, " + billYear)).getMonth() + 1;
-      prevReadingValue = await getPreviousReading(userId, monthIndex, billYear);
+    // If it's a water bill but no consumption provided, calculate it
+    if (billType.toLowerCase().includes('water') && finalConsumption === 0 && finalCurrReading > 0) {
+      finalConsumption = finalCurrReading - finalPrevReading;
+      if (finalConsumption < 0) finalConsumption = 0;
       
-      // Calculate consumption
-      consumption = (Number(currReading) || 0) - prevReadingValue;
-      if (consumption < 0) consumption = 0;
-      
-      // Calculate Manila Water Bill
-      waterBillDetails = calculateManilaWaterBill(consumption);
+      // Calculate bill amount
+      waterBillDetails = calculateManilaWaterBill(finalConsumption);
       finalAmount = waterBillDetails.totalAmount;
-    } else if (billType.toLowerCase().includes('dues')) {
-      finalAmount = amount || 500; // Monthly Dues amount
     }
     
     const newPayment = new Payment({
@@ -241,24 +288,28 @@ exports.create = async (req, res) => {
       amount: finalAmount,
       month: billMonth,
       year: billYear,
-      prevReading: prevReadingValue,
-      currReading: currReading || 0,
-      consumption: consumption,
-      ratePerCubic: ratePerCubic || (consumption > 0 ? finalAmount / consumption : 0),
+      prevReading: finalPrevReading,
+      currReading: finalCurrReading,
+      consumption: finalConsumption,
+      ratePerCubic: ratePerCubic || (finalConsumption > 0 ? finalAmount / finalConsumption : 0),
       status: 'UNPAID',
       dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
       meterNumber: meterNumber || '',
-      waterCharge: waterBillDetails ? waterBillDetails.waterCharge : 0,
-      basicServiceCharge: waterBillDetails ? waterBillDetails.basicServiceCharge : 0,
-      environmentalFee: waterBillDetails ? waterBillDetails.environmentalFee : 0,
-      sewerFee: waterBillDetails ? waterBillDetails.sewerFee : 0,
-      vat: waterBillDetails ? waterBillDetails.vat : 0,
+      waterCharge: waterBillDetails ? waterBillDetails.waterCharge : (waterCharge || 0),
+      basicServiceCharge: waterBillDetails ? waterBillDetails.basicServiceCharge : (basicServiceCharge || 50),
+      environmentalFee: waterBillDetails ? waterBillDetails.environmentalFee : (environmentalFee || 0),
+      sewerFee: waterBillDetails ? waterBillDetails.sewerFee : (sewerFee || 0),
+      vat: waterBillDetails ? waterBillDetails.vat : (vat || 0),
       isFinalized: true
     });
 
     await newPayment.save();
     
-    console.log(`✅ Bill created: ${billType} for ${userName} - ₱${finalAmount}`);
+    console.log(`✅ Bill created: ${billType} for ${userName}`);
+    console.log(`   Amount: ₱${finalAmount}`);
+    console.log(`   Consumption: ${finalConsumption} m³`);
+    console.log(`   Prev Reading: ${finalPrevReading} → Curr Reading: ${finalCurrReading}`);
+    
     res.status(201).json(newPayment);
     
   } catch (err) {
