@@ -28,6 +28,7 @@ const receiptStorage = new CloudinaryStorage({
 });
 
 const upload = multer({ storage: receiptStorage });
+const axios = require('axios');
 
 // =========================================================
 // ✅ PUBLIC ROUTES
@@ -127,7 +128,12 @@ router.get('/my-bills', paymentController.getMyBills);
 router.post('/paymongo-link', paymentController.createPayMongoLink);
 
 // ✅ NEW: Bulk pay all monthly dues at once (existing unpaid bills)
-router.post('/bulk-pay-monthly', auth, async (req, res) => {
+router.post('/bulk-pay-monthly', (req, res, next) => {
+    // Apply auth middleware manually
+    auth.protect(req, res, () => {
+        next();
+    });
+}, async (req, res) => {
     try {
         const { billIds, totalAmount } = req.body;
         
@@ -152,7 +158,6 @@ router.post('/bulk-pay-monthly', auth, async (req, res) => {
         const finalTotal = totalAmount || calculatedTotal;
         
         // Create single PayMongo checkout session
-        const axios = require('axios');
         const paymongoResponse = await axios.post(
             'https://api.paymongo.com/v1/checkout_sessions',
             {
@@ -208,7 +213,12 @@ router.post('/bulk-pay-monthly', auth, async (req, res) => {
 });
 
 // ✅ NEW: Full year payment (January to December)
-router.post('/full-year-payment', auth, async (req, res) => {
+router.post('/full-year-payment', (req, res, next) => {
+    // Apply auth middleware manually
+    auth.protect(req, res, () => {
+        next();
+    });
+}, async (req, res) => {
     try {
         const { year, monthlyAmount, months } = req.body;
         const totalAmount = monthlyAmount * 12;
