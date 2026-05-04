@@ -22,6 +22,7 @@ const dashboardRoutes = require('./routes/dashboardRoute');
 const visitorRoutes = require('./routes/visitorRoute');
 const logRoutes = require('./routes/logRoutes');
 const blockLotRoutes = require('./routes/blockLotRoute');
+const settingRoutes = require('./routes/settingRoute'); // ✅ ADDED
 
 const app = express();
 const server = http.createServer(app);
@@ -119,6 +120,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visitor', visitorRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api', blockLotRoutes);  // ✅ CHANGED: Now mounted at /api instead of /api/blocklots
+app.use('/api/settings', settingRoutes); // ✅ ADDED: Settings routes
 
 // ✅ 404 Handler
 app.use((req, res) => {
