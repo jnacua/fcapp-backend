@@ -51,7 +51,7 @@ app.use(cors({
         }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // ✅ PATCH added
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
@@ -118,7 +118,7 @@ app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visitor', visitorRoutes);
 app.use('/api/logs', logRoutes);
-app.use('/api/blocklots', blockLotRoutes);
+app.use('/api', blockLotRoutes);  // ✅ CHANGED: Now mounted at /api instead of /api/blocklots
 
 // ✅ 404 Handler
 app.use((req, res) => {
