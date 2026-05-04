@@ -23,7 +23,8 @@ const auditSchema = new mongoose.Schema({
     enum: [
       'ANNOUNCEMENT', 'PAYMENT', 'FACILITY', 'FACILITY_BOOKING',
       'USER', 'VEHICLE', 'SETTINGS', 'BLOCK_LOT', 'COMMUNITY_POST',
-      'INCIDENT_REPORT', 'PANIC_ALERT', 'MONTHLY_DUES', 'WATER_BILL'
+      'INCIDENT_REPORT', 'PANIC_ALERT', 'MONTHLY_DUES', 'WATER_BILL',
+      'FORUM_THREAD'  // ← ADD THIS LINE
     ], 
     required: true 
   },
